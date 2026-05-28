@@ -130,6 +130,24 @@ router.get("/tivra/userinfo", async (req, res) => {
   }
 });
 
+// Waiting payment slip orders (active orders to pay)
+router.get("/tivra/waitorders", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const url = `${BASE}/buyitoken/waitpayerpaymentslip?page=1&limit=50&if_asc=true&min_amount=100&max_amount=100000&method=0&date_asc=1`;
+    const r = await fetch(url, {
+      headers: { ...commonHeaders, indiatoken: token },
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
 // Collection tool list
 router.get("/tivra/tools", async (req, res) => {
   try {

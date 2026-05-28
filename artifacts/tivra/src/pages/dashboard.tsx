@@ -73,6 +73,10 @@ export default function Dashboard() {
   const [tools, setTools] = useState<any[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
 
+  // Active Orders (waiting payment) state
+  const [waitOrders, setWaitOrders] = useState<any[]>([]);
+  const [waitOrdersLoading, setWaitOrdersLoading] = useState(false);
+
   useEffect(() => {
     if (error) {
       localStorage.removeItem("tivra_token");
@@ -360,10 +364,32 @@ export default function Dashboard() {
     }
   };
 
+  const fetchWaitOrders = async () => {
+    const pToken = localStorage.getItem("tivra_platform_token");
+    if (!pToken) return;
+    setWaitOrdersLoading(true);
+    try {
+      const res = await platformFetch("/api/tivra/waitorders", {
+        headers: { "x-tivra-token": pToken },
+      });
+      if (res.code === 0) {
+        const filtered = (res.data?.list || []).filter(
+          (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
+        );
+        setWaitOrders(filtered);
+      }
+    } catch (e: any) {
+      if (e?.message !== "session_expired") { /* ignore */ }
+    } finally {
+      setWaitOrdersLoading(false);
+    }
+  };
+
   // Fetch orders / tools when active section changes (declared after the functions they call)
   useEffect(() => {
     if (activeSection === "Order History") fetchOrders(1);
     if (activeSection === "Tools Status") fetchTools();
+    if (activeSection === "Orders") fetchWaitOrders();
   }, [activeSection]);
 
   const filteredAccounts = accounts.filter(a => a.includes(accountSearch));
@@ -759,7 +785,60 @@ export default function Dashboard() {
             )}
 
             {/* Other Sections */}
-            {!["Dashboard", "Account Manager", "Tools Status", "Order History"].includes(activeSection) && (
+            {/* Orders (SBIN waiting payment) */}
+            {activeSection === "Orders" && (
+              <div className="flex flex-col space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {!waitOrdersLoading && (
+                      <>
+                        <span className="font-semibold text-foreground">{waitOrders.length}</span> SBIN orders
+                      </>
+                    )}
+                  </span>
+                  <button
+                    onClick={fetchWaitOrders}
+                    disabled={waitOrdersLoading}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${waitOrdersLoading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </button>
+                </div>
+
+                {!localStorage.getItem("tivra_platform_token") ? (
+                  <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
+                ) : waitOrdersLoading && waitOrders.length === 0 ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : waitOrders.length === 0 ? (
+                  <div className="border border-border rounded-lg bg-card py-10 text-center text-sm text-muted-foreground">
+                    No SBIN orders waiting.
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-lg bg-card overflow-hidden">
+                    <ul className="divide-y divide-border">
+                      {waitOrders.map(o => (
+                        <li key={o.rptNo} className="py-3 px-4 flex flex-col gap-1 hover:bg-muted/40 transition-colors duration-150">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-mono text-xs text-muted-foreground truncate">{o.rptNo}</span>
+                            <span className="font-bold text-sm flex-shrink-0">₹{o.amount}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-foreground truncate">{o.acctName}</span>
+                            <span className="font-mono text-muted-foreground flex-shrink-0">{o.acctNo}</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-primary">{o.acctCode}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!["Dashboard", "Account Manager", "Tools Status", "Order History", "Orders"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
                 <p className="text-muted-foreground">Content for {activeSection} coming soon.</p>
               </div>
