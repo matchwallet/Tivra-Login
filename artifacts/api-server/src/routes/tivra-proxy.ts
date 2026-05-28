@@ -138,7 +138,7 @@ router.get("/tivra/waitorders", async (req, res) => {
       res.status(400).json({ code: -1, msg: "Missing token" });
       return;
     }
-    const url = `${BASE}/buyitoken/waitpayerpaymentslip?page=1&limit=50&if_asc=true&min_amount=100&max_amount=100000&method=0&date_asc=1`;
+    const url = `${BASE}/buyitoken/waitpayerpaymentslip?page=1&limit=50&if_asc=false&min_amount=5000&max_amount=100000&method=1&date_asc=1`;
     const r = await fetch(url, {
       headers: { ...commonHeaders, indiatoken: token },
     });
