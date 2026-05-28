@@ -67,6 +67,8 @@ export default function Dashboard() {
   // Account Manager state
   const [accounts, setAccounts] = useState<string[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [addInput, setAddInput] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
@@ -424,14 +426,23 @@ export default function Dashboard() {
     persistAccounts(updated);
   };
 
-  const persistAccounts = (accounts: string[]) => {
+  const persistAccounts = async (accounts: string[]) => {
     const jwt = localStorage.getItem("tivra_jwt");
     if (!jwt) return;
-    fetch("/api/me/accounts", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({ accounts }),
-    }).catch(() => {});
+    setSyncStatus("syncing");
+    try {
+      const r = await fetch("/api/me/accounts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({ accounts }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setSyncStatus("synced");
+      setLastSyncedAt(Date.now());
+    } catch (e: any) {
+      setSyncStatus("error");
+      toast({ variant: "destructive", title: "Sync failed", description: e?.message || "Network error" });
+    }
   };
 
   const fetchOrders = async (page: number) => {
@@ -990,11 +1001,63 @@ export default function Dashboard() {
             {activeSection === "Account Manager" && (
               <div className="flex flex-col space-y-3">
                 {/* Toolbar */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">
-                    <span className="font-semibold text-foreground">{accounts.length}</span> accounts
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <span><span className="font-semibold text-foreground">{accounts.length}</span> accounts</span>
+                    {syncStatus !== "idle" && (
+                      <span className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border ${
+                        syncStatus === "syncing" ? "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400" :
+                        syncStatus === "synced"  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" :
+                                                   "border-destructive/40 bg-destructive/10 text-destructive"
+                      }`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${
+                          syncStatus === "syncing" ? "bg-blue-500 animate-pulse" :
+                          syncStatus === "synced"  ? "bg-emerald-500" : "bg-destructive"
+                        }`} />
+                        {syncStatus === "syncing" ? "Syncing…" :
+                         syncStatus === "synced"  ? (lastSyncedAt ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : "Synced") :
+                                                    "Sync failed"}
+                      </span>
+                    )}
                   </span>
                   <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 gap-1.5 text-xs transition-all duration-200"
+                      onClick={async () => {
+                        const jwt = localStorage.getItem("tivra_jwt");
+                        if (!jwt) { toast({ variant: "destructive", title: "Not logged in" }); return; }
+                        setSyncStatus("syncing");
+                        try {
+                          // Push local → server (authoritative merge of what UI currently has)
+                          const putRes = await fetch("/api/me/accounts", {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+                            body: JSON.stringify({ accounts }),
+                          });
+                          if (!putRes.ok) throw new Error(`PUT HTTP ${putRes.status}`);
+                          // Pull server → local so other devices' changes appear
+                          const getRes = await fetch("/api/me/accounts", { headers: { Authorization: `Bearer ${jwt}` } });
+                          if (!getRes.ok) throw new Error(`GET HTTP ${getRes.status}`);
+                          const data = await getRes.json();
+                          if (Array.isArray(data.accounts)) {
+                            setAccounts(data.accounts);
+                            localStorage.setItem("tivra_accounts", JSON.stringify(data.accounts));
+                          }
+                          setSyncStatus("synced");
+                          setLastSyncedAt(Date.now());
+                          toast({ title: "Synced", description: `${data.accounts?.length ?? 0} accounts on server.` });
+                        } catch (e: any) {
+                          setSyncStatus("error");
+                          toast({ variant: "destructive", title: "Sync failed", description: e?.message || "Network error" });
+                        }
+                      }}
+                      disabled={syncStatus === "syncing"}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${syncStatus === "syncing" ? "animate-spin" : ""}`} />
+                      Sync
+                    </Button>
                     <Button
                       variant={showSearch ? "secondary" : "ghost"}
                       size="sm"
