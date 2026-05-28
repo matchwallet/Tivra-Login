@@ -55,6 +55,8 @@ export default function Dashboard() {
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [sendtoken, setSendtoken] = useState("");
+  const [loginMode, setLoginMode] = useState<"credentials" | "token">("credentials");
+  const [manualToken, setManualToken] = useState("");
 
   // Account Manager state
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -283,7 +285,46 @@ export default function Dashboard() {
     setPassword("");
     setOtp("");
     setSendtoken("");
+    setManualToken("");
+    setLoginMode("credentials");
     setIsModalOpen(true);
+  };
+
+  const handleTokenLogin = async () => {
+    const token = manualToken.trim();
+    if (!token) return;
+    setIsLoadingPlatform(true);
+    try {
+      const userRes = await fetch("/api/tivra/userinfo", {
+        method: "GET",
+        headers: { "x-tivra-token": token }
+      }).then(r => r.json());
+
+      if (userRes.code !== 0) throw new Error(userRes.msg || "Invalid token");
+
+      const userData = userRes.data;
+      localStorage.setItem("tivra_platform_token", token);
+      localStorage.setItem("tivra_platform_user", JSON.stringify(userData));
+      setPlatformUser({
+        username: userData.username,
+        itoken: userData.itoken,
+        frozenItoken: userData.frozenItoken,
+        totalProfit: userData.totalProfit
+      });
+      toast({
+        title: "Connected with token",
+        description: `Signed in as ${userData.username}`,
+      });
+      setModalStep(3);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Token Login Failed",
+        description: error.message
+      });
+    } finally {
+      setIsLoadingPlatform(false);
+    }
   };
 
   const handleAddAccounts = () => {
@@ -893,28 +934,73 @@ export default function Dashboard() {
           <div className="grid gap-4 py-4">
             {modalStep === 1 && (
               <>
-                <div className="grid gap-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input 
-                    id="phone" 
-                    type="tel"
-                    value={phone} 
-                    onChange={e => setPhone(e.target.value)} 
-                    placeholder="Enter phone number" 
-                    data-testid="input-tivra-phone"
-                  />
+                <div className="flex p-1 bg-muted rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setLoginMode("credentials")}
+                    className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all duration-200 ${
+                      loginMode === "credentials"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Credentials
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoginMode("token")}
+                    className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all duration-200 ${
+                      loginMode === "token"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Token
+                  </button>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input 
-                    id="password" 
-                    type="password"
-                    value={password} 
-                    onChange={e => setPassword(e.target.value)} 
-                    placeholder="Enter password" 
-                    data-testid="input-tivra-password"
-                  />
-                </div>
+
+                {loginMode === "credentials" ? (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="phone">Phone Number</Label>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                        placeholder="Enter phone number"
+                        data-testid="input-tivra-phone"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="password">Password</Label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        placeholder="Enter password"
+                        data-testid="input-tivra-password"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label htmlFor="manual-token">Platform Token</Label>
+                    <Input
+                      id="manual-token"
+                      type="text"
+                      value={manualToken}
+                      onChange={e => setManualToken(e.target.value)}
+                      placeholder="Paste your indiatoken"
+                      className="font-mono text-xs"
+                      data-testid="input-tivra-token"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Skip the OTP flow by pasting a valid platform token directly.
+                    </p>
+                  </div>
+                )}
               </>
             )}
 
@@ -949,14 +1035,23 @@ export default function Dashboard() {
 
           <DialogFooter>
             {modalStep < 3 ? (
-              <Button 
-                onClick={handlePlatformLoginNext} 
-                disabled={isLoadingPlatform || (modalStep === 1 && (!phone || !password)) || (modalStep === 2 && !otp)}
+              <Button
+                onClick={modalStep === 1 && loginMode === "token" ? handleTokenLogin : handlePlatformLoginNext}
+                disabled={
+                  isLoadingPlatform ||
+                  (modalStep === 1 && loginMode === "credentials" && (!phone || !password)) ||
+                  (modalStep === 1 && loginMode === "token" && !manualToken.trim()) ||
+                  (modalStep === 2 && !otp)
+                }
                 className="w-full"
                 data-testid="button-tivra-submit"
               >
                 {isLoadingPlatform ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {modalStep === 1 ? "Sign In" : "Verify & Connect"}
+                {modalStep === 1
+                  ? loginMode === "token"
+                    ? "Connect with Token"
+                    : "Sign In"
+                  : "Verify & Connect"}
               </Button>
             ) : (
               <Button onClick={() => setIsModalOpen(false)} className="w-full" data-testid="button-tivra-close">
