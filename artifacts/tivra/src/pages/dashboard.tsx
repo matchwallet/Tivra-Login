@@ -94,6 +94,8 @@ export default function Dashboard() {
   const [pickupLogs, setPickupLogs] = useState<PickupLog[]>([]);
   const pickupBusyRef = useRef(false);
   const handledRptsRef = useRef<Set<string>>(new Set());
+  const lastSbinOrdersRef = useRef<any[]>([]);
+  const waitorderFailStreakRef = useRef(0);
 
   // Admin state
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
@@ -588,7 +590,10 @@ export default function Dashboard() {
     try {
     // 1. Always fetch wait orders first so the count updates every tick,
     //    regardless of any guard failures below.
-    let sbinOrders: any[] = [];
+    // Fall back to cached list on failure so a transient WAF block doesn't strand
+    // a match that we already saw on a prior successful tick.
+    let sbinOrders: any[] = lastSbinOrdersRef.current;
+    let usedCache = true;
     try {
       const woRes = await platformFetch("/api/tivra/waitorders", {
         headers: { "x-tivra-token": pToken },
@@ -600,15 +605,28 @@ export default function Dashboard() {
           (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
         );
         setWaitOrders(sbinOrders);
+        lastSbinOrdersRef.current = sbinOrders;
+        usedCache = false;
+        if (waitorderFailStreakRef.current > 0) {
+          addPickupLog("info", `Waitorders recovered after ${waitorderFailStreakRef.current} failed tick(s).`);
+          waitorderFailStreakRef.current = 0;
+        }
       } else {
-        addPickupLog("error", `Waitorders fetch blocked by upstream: ${woRes.msg || "unknown"}`);
-        return;
+        waitorderFailStreakRef.current += 1;
+        // Only log first failure of a streak to avoid spam.
+        if (waitorderFailStreakRef.current === 1) {
+          addPickupLog("warn", `Waitorders blocked (${woRes.msg || "unknown"}) — retrying pickup on cached ${sbinOrders.length} order(s).`);
+        }
       }
     } catch (e: any) {
       if (e?.message === "session_expired") return;
-      addPickupLog("error", `Waitorders request failed: ${e?.message || e}`);
-      return;
+      waitorderFailStreakRef.current += 1;
+      if (waitorderFailStreakRef.current === 1) {
+        addPickupLog("warn", `Waitorders request failed (${e?.message || e}) — retrying pickup on cached ${sbinOrders.length} order(s).`);
+      }
     }
+    // If cache is empty and live fetch also failed, there's nothing to pick up.
+    if (usedCache && sbinOrders.length === 0) return;
 
     // 2. Read default tool
     const dtRaw = localStorage.getItem("tivra_default_tool");
