@@ -138,10 +138,11 @@ export default function Dashboard() {
     } catch (e) {
       // ignore
     }
-    // 2. Fetch authoritative list from server, then mirror to localStorage
+    // 2. Fetch authoritative settings from server, then mirror to localStorage
     const jwt = localStorage.getItem("tivra_jwt");
     if (jwt) {
-      fetch("/api/me/accounts", { headers: { Authorization: `Bearer ${jwt}` } })
+      const auth = { Authorization: `Bearer ${jwt}` };
+      fetch("/api/me/accounts", { headers: auth })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data && Array.isArray(data.accounts)) {
@@ -150,11 +151,25 @@ export default function Dashboard() {
           }
         })
         .catch(() => {});
+      fetch("/api/me/default-tool", { headers: auth })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && data.defaultTool !== undefined) {
+            const dt = data.defaultTool as DefaultTool | null;
+            setDefaultTool(dt);
+            if (dt) localStorage.setItem("tivra_default_tool", JSON.stringify(dt));
+            else localStorage.removeItem("tivra_default_tool");
+          }
+        })
+        .catch(() => {});
     }
-    // 3. Cross-tab sync: if another tab edits accounts, mirror into this tab
+    // 3. Cross-tab sync: if another tab edits accounts/default-tool, mirror into this tab
     const onStorage = (e: StorageEvent) => {
       if (e.key === "tivra_accounts" && e.newValue) {
         try { setAccounts(JSON.parse(e.newValue)); } catch {}
+      }
+      if (e.key === "tivra_default_tool") {
+        try { setDefaultTool(e.newValue ? JSON.parse(e.newValue) : null); } catch {}
       }
     };
     window.addEventListener("storage", onStorage);
@@ -471,16 +486,30 @@ export default function Dashboard() {
     ].slice(0, 100));
   }, []);
 
+  const persistDefaultTool = (d: DefaultTool | null) => {
+    const jwt = localStorage.getItem("tivra_jwt");
+    if (!jwt) return;
+    fetch("/api/me/default-tool", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ defaultTool: d }),
+    }).catch(() => {
+      toast({ variant: "destructive", title: "Failed to save default tool to server" });
+    });
+  };
+
   const setToolAsDefault = (tool: any) => {
     const d: DefaultTool = { id: tool.id, ctType: tool.ctType, upi: tool.upi };
     localStorage.setItem("tivra_default_tool", JSON.stringify(d));
     setDefaultTool(d);
+    persistDefaultTool(d);
     toast({ title: "Default tool set", description: tool.upi });
   };
 
   const clearDefaultTool = () => {
     localStorage.removeItem("tivra_default_tool");
     setDefaultTool(null);
+    persistDefaultTool(null);
     toast({ title: "Default tool cleared" });
   };
 

@@ -1,7 +1,13 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+
+export type DefaultToolSetting = {
+  id: number | string;
+  ctType: number | string;
+  upi: string;
+};
 
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -11,6 +17,7 @@ export const usersTable = pgTable("users", {
   role: text("role").notNull().default("user"),
   showOrderLogs: boolean("show_order_logs").notNull().default(true),
   accounts: text("accounts").array().notNull().default(sql`'{}'::text[]`),
+  defaultTool: jsonb("default_tool").$type<DefaultToolSetting | null>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -32,4 +32,35 @@ router.put("/me/accounts", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ accounts: updated?.accounts ?? [] });
 });
 
+// Default-tool setting — per-user, server-side so it follows the user across devices.
+router.get("/me/default-tool", requireAuth, async (req: AuthedRequest, res) => {
+  const [user] = await db
+    .select({ defaultTool: usersTable.defaultTool })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.authUser!.id))
+    .limit(1);
+  res.json({ defaultTool: user?.defaultTool ?? null });
+});
+
+router.put("/me/default-tool", requireAuth, async (req: AuthedRequest, res) => {
+  const { defaultTool } = req.body as { defaultTool?: unknown };
+  if (defaultTool !== null && defaultTool !== undefined) {
+    const t = defaultTool as Record<string, unknown>;
+    const idOk = typeof t.id === "string" || typeof t.id === "number";
+    const ctOk = typeof t.ctType === "string" || typeof t.ctType === "number";
+    const upiOk = typeof t.upi === "string" && t.upi.length > 0 && t.upi.length <= 128;
+    if (!idOk || !ctOk || !upiOk) {
+      res.status(400).json({ error: "defaultTool must be null or { id, ctType, upi }" });
+      return;
+    }
+  }
+  const payload = (defaultTool ?? null) as { id: number | string; ctType: number | string; upi: string } | null;
+  const [updated] = await db
+    .update(usersTable)
+    .set({ defaultTool: payload })
+    .where(eq(usersTable.id, req.authUser!.id))
+    .returning({ defaultTool: usersTable.defaultTool });
+  res.json({ defaultTool: updated?.defaultTool ?? null });
+});
+
 export default router;
