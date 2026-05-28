@@ -217,6 +217,46 @@ router.post("/tivra/pickup", async (req, res) => {
   }
 });
 
+// Process payment slip — cancel or finish a Paying order
+router.post("/tivra/processpayment", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const { order_id, process, cancel_remark } = req.body as {
+      order_id: string;
+      process: "cancel" | "finish";
+      cancel_remark?: string;
+    };
+    if (!order_id || !process) {
+      res.status(400).json({ code: -1, msg: "Missing order_id or process" });
+      return;
+    }
+    if (process !== "cancel" && process !== "finish") {
+      res.status(400).json({ code: -1, msg: "process must be 'cancel' or 'finish'" });
+      return;
+    }
+    const fields: Record<string, string> = {
+      order_id: String(order_id),
+      process,
+    };
+    if (process === "cancel") {
+      fields.cancel_remark = cancel_remark && cancel_remark.trim() ? cancel_remark : "Don't want to buy";
+    }
+    const form = buildMultipart(fields);
+    const r = await fetch(`${BASE}/buyitoken/processpaymentslips`, {
+      method: "POST",
+      headers: { ...commonHeaders, indiatoken: token },
+      body: form,
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
 // Payment slip detail
 router.get("/tivra/orderdetail", async (req, res) => {
   try {

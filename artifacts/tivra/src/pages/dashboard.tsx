@@ -98,6 +98,11 @@ export default function Dashboard() {
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
 
+  // Process-payment (cancel / finish) dialog state
+  const [processOrder, setProcessOrder] = useState<any | null>(null);
+  const [processBusy, setProcessBusy] = useState(false);
+  const [cancelRemark, setCancelRemark] = useState("Don't want to buy");
+
   useEffect(() => {
     if (error) {
       localStorage.removeItem("tivra_token");
@@ -478,6 +483,42 @@ export default function Dashboard() {
       toast({ title: "Updated", description: `Order logs ${showOrderLogs ? "enabled" : "disabled"}.` });
     } else {
       toast({ variant: "destructive", title: "Update failed" });
+    }
+  };
+
+  const processPaymentSlip = async (order: any, action: "cancel" | "finish") => {
+    const pToken = localStorage.getItem("tivra_platform_token");
+    if (!pToken) return;
+    setProcessBusy(true);
+    try {
+      const body: any = { order_id: order.rptNo || order.orderNo, process: action };
+      if (action === "cancel") body.cancel_remark = cancelRemark || "Don't want to buy";
+      const r = await platformFetch("/api/tivra/processpayment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tivra-token": pToken },
+        body: JSON.stringify(body),
+      });
+      if (r.code === 0) {
+        toast({
+          title: action === "cancel" ? "Order cancelled" : "Order marked paid",
+          description: order.orderNo,
+        });
+        setProcessOrder(null);
+        setCancelRemark("Don't want to buy");
+        fetchOrders(1);
+      } else {
+        toast({
+          variant: "destructive",
+          title: action === "cancel" ? "Cancel failed" : "Mark paid failed",
+          description: r.msg || "Unknown error",
+        });
+      }
+    } catch (e: any) {
+      if (e?.message !== "session_expired") {
+        toast({ variant: "destructive", title: "Request failed", description: e?.message || String(e) });
+      }
+    } finally {
+      setProcessBusy(false);
     }
   };
 
@@ -1021,14 +1062,26 @@ export default function Dashboard() {
                           
                           const status = orderStatusMap[order.orderState] || { label: "Unknown", color: "bg-muted text-muted-foreground" };
                           
+                          const isPaying = order.orderState === 1;
                           return (
-                            <li key={order.id || i} className="py-3 px-4 flex flex-col gap-1.5 hover:bg-muted/50 transition-colors">
+                            <li
+                              key={order.id || i}
+                              onClick={isPaying ? () => setProcessOrder(order) : undefined}
+                              className={`py-3 px-4 flex flex-col gap-1.5 transition-colors ${
+                                isPaying ? "hover:bg-amber-50 dark:hover:bg-amber-900/10 cursor-pointer" : "hover:bg-muted/50"
+                              }`}
+                            >
                               <div className="flex items-center justify-between">
                                 <span className="font-mono text-xs truncate max-w-[200px] sm:max-w-xs">{order.orderNo}</span>
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${status.color}`}>
                                   {status.label}
                                 </span>
                               </div>
+                              {isPaying && (
+                                <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                                  Tap to cancel or mark as paid
+                                </div>
+                              )}
                               <div className="text-xs text-muted-foreground">
                                 {order.acctName} · {order.acctNo} · {order.acctCode}
                               </div>
@@ -1259,6 +1312,73 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+
+            {/* Process Paying-order dialog */}
+            <Dialog
+              open={!!processOrder}
+              onOpenChange={(o) => { if (!o && !processBusy) { setProcessOrder(null); setCancelRemark("Don't want to buy"); } }}
+            >
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Resolve pending order</DialogTitle>
+                  <DialogDescription>
+                    Choose to mark this order as paid or cancel it.
+                  </DialogDescription>
+                </DialogHeader>
+                {processOrder && (
+                  <div className="flex flex-col gap-3">
+                    <div className="border border-border rounded-lg p-3 bg-muted/30 text-sm space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Order</span>
+                        <span className="font-mono text-xs truncate">{processOrder.orderNo}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Amount</span>
+                        <span className="font-bold">₹{processOrder.amount}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Account</span>
+                        <span className="text-xs truncate">{processOrder.acctName} · {processOrder.acctNo}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="cancel-remark" className="text-xs">Cancel remark (used if you cancel)</Label>
+                      <Input
+                        id="cancel-remark"
+                        value={cancelRemark}
+                        onChange={(e) => setCancelRemark(e.target.value)}
+                        placeholder="Don't want to buy"
+                        disabled={processBusy}
+                      />
+                    </div>
+                  </div>
+                )}
+                <DialogFooter className="flex-col sm:flex-row gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setProcessOrder(null); setCancelRemark("Don't want to buy"); }}
+                    disabled={processBusy}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => processOrder && processPaymentSlip(processOrder, "cancel")}
+                    disabled={processBusy}
+                  >
+                    {processBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                    Cancel order
+                  </Button>
+                  <Button
+                    onClick={() => processOrder && processPaymentSlip(processOrder, "finish")}
+                    disabled={processBusy}
+                  >
+                    {processBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                    Mark as paid
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {!["Dashboard", "Account Manager", "Tools Status", "Order History", "Orders", "Admin"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
