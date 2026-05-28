@@ -83,6 +83,7 @@ export default function Dashboard() {
 
   // Active Orders (waiting payment) state
   const [waitOrders, setWaitOrders] = useState<any[]>([]);
+  const [waitOrdersTotal, setWaitOrdersTotal] = useState(0);
   const [waitOrdersLoading, setWaitOrdersLoading] = useState(false);
   const [waitOrdersAuto, setWaitOrdersAuto] = useState(false);
 
@@ -531,7 +532,9 @@ export default function Dashboard() {
         headers: { "x-tivra-token": pToken },
       });
       if (res.code === 0) {
-        const filtered = (res.data?.list || []).filter(
+        const list = res.data?.list || [];
+        setWaitOrdersTotal(list.length);
+        const filtered = list.filter(
           (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
         );
         setWaitOrders(filtered);
@@ -601,7 +604,9 @@ export default function Dashboard() {
         headers: { "x-tivra-token": pToken },
       });
       if (woRes.code === 0) {
-        sbinOrders = (woRes.data?.list || []).filter(
+        const list = woRes.data?.list || [];
+        setWaitOrdersTotal(list.length);
+        sbinOrders = list.filter(
           (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
         );
         setWaitOrders(sbinOrders);
@@ -1158,7 +1163,8 @@ export default function Dashboard() {
                   <span className="text-sm text-muted-foreground">
                     {!waitOrdersLoading && (
                       <>
-                        <span className="font-semibold text-foreground">{waitOrders.length}</span> SBIN orders
+                        <span className="font-semibold text-foreground">{waitOrders.length}</span> SBIN
+                        <span className="text-muted-foreground/70"> · {waitOrdersTotal} total fetched</span>
                       </>
                     )}
                   </span>
