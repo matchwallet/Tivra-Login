@@ -164,14 +164,25 @@ chmod 600 "$ENV_FILE"
 ok "Environment configured."
 
 # ───────────────────── 6. Install, build, migrate ─────────────────────────
+# The root package.json has a preinstall guard that aborts unless
+# $npm_config_user_agent starts with 'pnpm/' — older pnpm versions or
+# certain shell invocation paths (sudo + login shell) don't always
+# propagate it, so we set it explicitly before every pnpm invocation.
+PNPM_UA="pnpm/$(sudo -u "$APP_USER" bash -c 'pnpm -v' || echo local)"
+
 log "Installing dependencies (pnpm)…"
-sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && pnpm install --frozen-lockfile"
+sudo -u "$APP_USER" bash -lc "
+  cd '$APP_DIR'
+  export npm_config_user_agent='$PNPM_UA'
+  pnpm install --frozen-lockfile
+"
 
 log "Building frontend + API…"
 # Vite's build script requires PORT and BASE_PATH; the values only matter for
 # the dev/preview server, not for the static output, but they must be set.
 sudo -u "$APP_USER" bash -lc "
   cd '$APP_DIR'
+  export npm_config_user_agent='$PNPM_UA'
   set -a; source '$ENV_FILE'; set +a
   BASE_PATH=/ PORT=21144 pnpm --filter @workspace/tivra run build
   pnpm --filter @workspace/api-server run build
@@ -181,6 +192,7 @@ ok "Builds complete."
 log "Pushing Drizzle schema to Postgres…"
 sudo -u "$APP_USER" bash -lc "
   cd '$APP_DIR'
+  export npm_config_user_agent='$PNPM_UA'
   set -a; source '$ENV_FILE'; set +a
   pnpm --filter @workspace/db run push
 "
