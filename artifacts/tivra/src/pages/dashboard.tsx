@@ -60,6 +60,8 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
   const [addInput, setAddInput] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [showAddPanel, setShowAddPanel] = useState(false);
 
   // Pending Orders state
   const [orders, setOrders] = useState<any[]>([]);
@@ -441,51 +443,104 @@ export default function Dashboard() {
 
             {/* Account Manager Content */}
             {activeSection === "Account Manager" && (
-              <div className="flex flex-col space-y-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <span className="font-medium text-sm">{accounts.length} accounts saved</span>
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder="Search accounts..."
-                      className="pl-9"
-                      value={accountSearch}
-                      onChange={e => setAccountSearch(e.target.value)}
-                    />
+              <div className="flex flex-col space-y-3">
+                {/* Toolbar */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">{accounts.length}</span> accounts
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant={showSearch ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-8 px-2.5 gap-1.5 text-xs transition-all duration-200"
+                      onClick={() => { setShowSearch(p => !p); if (showSearch) setAccountSearch(""); }}
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      Search
+                    </Button>
+                    <Button
+                      variant={showAddPanel ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-8 px-2.5 gap-1.5 text-xs transition-all duration-200"
+                      onClick={() => setShowAddPanel(p => !p)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                    </Button>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-start gap-4">
-                  <Textarea
-                    placeholder="Enter 4-digit numbers separated by spaces or newlines&#10;e.g. 8979 9879 9877"
-                    className="w-full sm:flex-1 resize-none h-24"
-                    value={addInput}
-                    onChange={e => setAddInput(e.target.value)}
-                  />
-                  <Button onClick={handleAddAccounts} className="w-full sm:w-auto h-24 flex items-center gap-2">
-                    <Plus className="h-4 w-4" /> Add Accounts
-                  </Button>
+                {/* Search panel — animated */}
+                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${showSearch ? "max-h-16 opacity-100" : "max-h-0 opacity-0"}`}>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <Input
+                      type="text"
+                      placeholder="Search by account number…"
+                      className="pl-8 h-9 text-sm"
+                      value={accountSearch}
+                      onChange={e => setAccountSearch(e.target.value)}
+                      autoFocus={showSearch}
+                    />
+                    {accountSearch && (
+                      <button
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setAccountSearch("")}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="border border-border rounded-lg bg-card overflow-hidden mt-4">
+                {/* Add panel — animated */}
+                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${showAddPanel ? "max-h-48 opacity-100" : "max-h-0 opacity-0"}`}>
+                  <div className="border border-border rounded-lg bg-card p-3 flex flex-col gap-2">
+                    <Textarea
+                      placeholder={"Enter 4-digit numbers separated by spaces or newlines\ne.g. 8979 9879 9877"}
+                      className="resize-none text-sm h-20 text-foreground"
+                      value={addInput}
+                      onChange={e => setAddInput(e.target.value)}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => { setAddInput(""); setShowAddPanel(false); }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs gap-1.5"
+                        onClick={() => { handleAddAccounts(); setShowAddPanel(false); }}
+                        disabled={!addInput.trim()}
+                      >
+                        <Plus className="h-3 w-3" /> Add
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account list */}
+                <div className="border border-border rounded-lg bg-card overflow-hidden">
                   {filteredAccounts.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground text-sm">
-                      No accounts saved.
+                    <div className="py-10 text-center text-muted-foreground text-sm">
+                      {accountSearch ? "No matching accounts." : "No accounts saved."}
                     </div>
                   ) : (
                     <ul className="divide-y divide-border">
                       {filteredAccounts.map(account => (
-                        <li key={account} className="flex items-center justify-between py-3 px-4 hover:bg-muted/50 transition-colors">
-                          <span className="text-sm font-medium">{account}</span>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        <li key={account} className="flex items-center justify-between py-2.5 px-4 hover:bg-muted/40 transition-colors duration-150">
+                          <span className="font-mono text-sm font-medium tracking-widest">{account}</span>
+                          <button
+                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-150"
                             onClick={() => handleRemoveAccount(account)}
                           >
-                            <X className="h-4 w-4" />
-                          </Button>
+                            <X className="h-3.5 w-3.5" />
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -515,7 +570,7 @@ export default function Dashboard() {
                             4: { label: "Canceled", color: "bg-muted text-muted-foreground" }
                           };
                           
-                          const status = orderStatusMap[order.status] || { label: "Unknown", color: "bg-muted text-muted-foreground" };
+                          const status = orderStatusMap[order.orderState] || { label: "Unknown", color: "bg-muted text-muted-foreground" };
                           
                           return (
                             <li key={order.id || i} className="py-3 px-4 flex flex-col gap-1.5 hover:bg-muted/50 transition-colors">
