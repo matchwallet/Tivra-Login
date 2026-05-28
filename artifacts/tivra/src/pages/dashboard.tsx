@@ -141,7 +141,7 @@ export default function Dashboard() {
       // ignore
     }
     // 2. Fetch authoritative settings from server, then mirror to localStorage
-    const jwt = localStorage.getItem("tivra_jwt");
+    const jwt = localStorage.getItem("tivra_token");
     if (jwt) {
       const auth = { Authorization: `Bearer ${jwt}` };
       fetch("/api/me/accounts", { headers: auth })
@@ -427,7 +427,7 @@ export default function Dashboard() {
   };
 
   const persistAccounts = async (accounts: string[]) => {
-    const jwt = localStorage.getItem("tivra_jwt");
+    const jwt = localStorage.getItem("tivra_token");
     if (!jwt) return;
     setSyncStatus("syncing");
     try {
@@ -498,7 +498,7 @@ export default function Dashboard() {
   }, []);
 
   const persistDefaultTool = (d: DefaultTool | null) => {
-    const jwt = localStorage.getItem("tivra_jwt");
+    const jwt = localStorage.getItem("tivra_token");
     if (!jwt) return;
     fetch("/api/me/default-tool", {
       method: "PUT",
@@ -1026,7 +1026,7 @@ export default function Dashboard() {
                       size="sm"
                       className="h-8 px-2.5 gap-1.5 text-xs transition-all duration-200"
                       onClick={async () => {
-                        const jwt = localStorage.getItem("tivra_jwt");
+                        const jwt = localStorage.getItem("tivra_token");
                         if (!jwt) { toast({ variant: "destructive", title: "Not logged in" }); return; }
                         setSyncStatus("syncing");
                         try {
