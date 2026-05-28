@@ -484,13 +484,69 @@ export default function Dashboard() {
     toast({ title: "Default tool cleared" });
   };
 
-  const notify = (title: string, body: string) => {
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | "unsupported">(() => {
+    if (typeof Notification === "undefined") return "unsupported";
+    return Notification.permission;
+  });
+
+  const requestNotifPerm = useCallback(async () => {
+    if (typeof Notification === "undefined") {
+      toast({ variant: "destructive", title: "Notifications not supported", description: "This browser doesn't support desktop notifications." });
+      return;
+    }
+    try {
+      const p = await Notification.requestPermission();
+      setNotifPerm(p);
+      if (p === "granted") {
+        new Notification("Tivra notifications enabled", { body: "You'll be alerted when an order is picked up." });
+        toast({ title: "Notifications enabled" });
+      } else if (p === "denied") {
+        toast({ variant: "destructive", title: "Notifications blocked", description: "Enable them in your browser site settings." });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Permission request failed", description: e?.message });
+    }
+  }, [toast]);
+
+  // Short success beep using the Web Audio API — no asset file needed.
+  const playBeep = useCallback(() => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.36);
+      osc.onended = () => ctx.close();
+    } catch { /* ignore */ }
+  }, []);
+
+  const notify = useCallback((title: string, body: string) => {
+    // In-app toast (always)
+    toast({ title, description: body, duration: 8000 });
+    // Audio cue
+    playBeep();
+    // OS-level desktop notification (if permission granted)
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification(title, { body });
+        const n = new Notification(title, {
+          body,
+          tag: "tivra-pickup",
+          requireInteraction: false,
+          silent: false,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
       }
     } catch { /* ignore */ }
-  };
+  }, [toast, playBeep]);
 
   const fetchAdminUsers = async () => {
     setAdminLoading(true);
@@ -1232,6 +1288,16 @@ export default function Dashboard() {
                     })()}
                   </span>
                   <div className="flex items-center gap-2">
+                    {notifPerm !== "granted" && notifPerm !== "unsupported" && (
+                      <button
+                        onClick={requestNotifPerm}
+                        className="flex items-center gap-1.5 text-xs px-2.5 h-7 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-all duration-200"
+                        title="Enable desktop notifications for picked orders"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        Enable notifications
+                      </button>
+                    )}
                     <button
                       onClick={() => setWaitOrdersAuto(p => !p)}
                       className={`flex items-center gap-1.5 text-xs px-2.5 h-7 rounded-full border transition-all duration-200 ${
