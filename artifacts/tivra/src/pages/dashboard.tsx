@@ -24,7 +24,7 @@ type PlatformUser = {
 const MENU_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard },
   { label: "Account Manager", icon: Users },
-  { label: "Pending Orders", icon: Clock },
+  { label: "Order History", icon: Clock },
   { label: "Tools Status", icon: Wrench },
   { label: "Orders", icon: ShoppingCart },
   { label: "Live Logs", icon: ScrollText },
@@ -106,7 +106,7 @@ export default function Dashboard() {
 
   // Fetch orders when active section changes
   useEffect(() => {
-    if (activeSection === "Pending Orders") {
+    if (activeSection === "Order History") {
       fetchOrders(1);
     }
   }, [activeSection]);
@@ -549,8 +549,8 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Pending Orders Content */}
-            {activeSection === "Pending Orders" && (
+            {/* Order History Content */}
+            {activeSection === "Order History" && (
               <div className="flex flex-col space-y-4">
                 {!localStorage.getItem("tivra_platform_token") ? (
                   <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
@@ -622,7 +622,7 @@ export default function Dashboard() {
             )}
 
             {/* Other Sections */}
-            {!["Dashboard", "Account Manager", "Pending Orders"].includes(activeSection) && (
+            {!["Dashboard", "Account Manager", "Order History"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
                 <p className="text-muted-foreground">Content for {activeSection} coming soon.</p>
               </div>
