@@ -1194,12 +1194,19 @@ export default function Dashboard() {
 
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">
-                    {!waitOrdersLoading && (
-                      <>
-                        <span className="font-semibold text-foreground">{waitOrders.length}</span> SBIN
-                        <span className="text-muted-foreground/70"> · {waitOrdersTotal} total fetched</span>
-                      </>
-                    )}
+                    {!waitOrdersLoading && (() => {
+                      const last4Set = new Set(accounts);
+                      const matching = waitOrders.filter(o => {
+                        const a = String(o.acctNo || "");
+                        return a.length >= 4 && last4Set.has(a.slice(-4));
+                      });
+                      return (
+                        <>
+                          <span className="font-semibold text-foreground">{matching.length}</span> matching
+                          <span className="text-muted-foreground/70"> · {waitOrders.length} SBIN · {waitOrdersTotal} total fetched</span>
+                        </>
+                      );
+                    })()}
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -1232,14 +1239,25 @@ export default function Dashboard() {
                   <div className="flex justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ) : waitOrders.length === 0 ? (
-                  <div className="border border-border rounded-lg bg-card py-10 text-center text-sm text-muted-foreground">
-                    No SBIN orders waiting.
-                  </div>
-                ) : (
-                  <div className="border border-border rounded-lg bg-card overflow-hidden">
-                    <ul className="divide-y divide-border">
-                      {waitOrders.map(o => (
+                ) : (() => {
+                  const last4Set = new Set(accounts);
+                  const matchingOrders = waitOrders.filter(o => {
+                    const a = String(o.acctNo || "");
+                    return a.length >= 4 && last4Set.has(a.slice(-4));
+                  });
+                  if (matchingOrders.length === 0) {
+                    return (
+                      <div className="border border-border rounded-lg bg-card py-10 text-center text-sm text-muted-foreground">
+                        {accounts.length === 0
+                          ? "Add accounts in Account Manager to see matching orders."
+                          : "No matching SBIN orders for your accounts."}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="border border-border rounded-lg bg-card overflow-hidden">
+                      <ul className="divide-y divide-border">
+                        {matchingOrders.map(o => (
                         <li key={o.rptNo} className="py-3 px-4 flex flex-col gap-1 hover:bg-muted/40 transition-colors duration-150">
                           <div className="flex items-center justify-between gap-3">
                             <span className="font-mono text-xs text-muted-foreground truncate">{o.rptNo}</span>
@@ -1254,7 +1272,8 @@ export default function Dashboard() {
                       ))}
                     </ul>
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* Pickup logs — gated by admin-controlled showOrderLogs */}
                 {(user as any)?.showOrderLogs && (
