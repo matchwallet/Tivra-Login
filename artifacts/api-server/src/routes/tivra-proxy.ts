@@ -130,6 +130,23 @@ router.get("/tivra/userinfo", async (req, res) => {
   }
 });
 
+// Collection tool list
+router.get("/tivra/tools", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const r = await fetch(`${BASE}/collectiontoollist`, {
+      headers: { ...commonHeaders, indiatoken: token },
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
 // Pending orders history
 router.get("/tivra/orders", async (req, res) => {
   try {

@@ -69,6 +69,10 @@ export default function Dashboard() {
   const [ordersPage, setOrdersPage] = useState(1);
   const [ordersTotal, setOrdersTotal] = useState(0);
 
+  // Tools Status state
+  const [tools, setTools] = useState<any[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+
   useEffect(() => {
     if (error) {
       localStorage.removeItem("tivra_token");
@@ -103,13 +107,6 @@ export default function Dashboard() {
       // ignore
     }
   }, []);
-
-  // Fetch orders when active section changes
-  useEffect(() => {
-    if (activeSection === "Order History") {
-      fetchOrders(1);
-    }
-  }, [activeSection]);
 
   const handleAppLogout = () => {
     logout.mutate(undefined, {
@@ -293,6 +290,33 @@ export default function Dashboard() {
       setOrdersLoading(false);
     }
   };
+
+  const fetchTools = async () => {
+    const pToken = localStorage.getItem("tivra_platform_token");
+    if (!pToken) return;
+    setToolsLoading(true);
+    try {
+      const res = await fetch("/api/tivra/tools", {
+        headers: { "x-tivra-token": pToken },
+      }).then(r => r.json());
+      if (res.code === 0) {
+        const filtered = (res.data as any[]).filter(
+          t => t.upi && (t.upi.includes("@mbkns") || t.upi.includes("@freecharge"))
+        );
+        setTools(filtered);
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      setToolsLoading(false);
+    }
+  };
+
+  // Fetch orders / tools when active section changes (declared after the functions they call)
+  useEffect(() => {
+    if (activeSection === "Order History") fetchOrders(1);
+    if (activeSection === "Tools Status") fetchTools();
+  }, [activeSection]);
 
   const filteredAccounts = accounts.filter(a => a.includes(accountSearch));
 
@@ -549,6 +573,71 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Tools Status Content */}
+            {activeSection === "Tools Status" && (
+              <div className="flex flex-col space-y-3">
+                {/* Toolbar */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {!toolsLoading && tools.length > 0 && (
+                      <>
+                        <span className="font-semibold text-emerald-600">{tools.filter(t => t.state === 2).length}</span> online
+                        <span className="mx-1.5 text-border">·</span>
+                        <span className="font-semibold text-foreground">{tools.filter(t => t.state !== 2).length}</span> offline
+                      </>
+                    )}
+                  </span>
+                  <button
+                    onClick={fetchTools}
+                    disabled={toolsLoading}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${toolsLoading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </button>
+                </div>
+
+                {!localStorage.getItem("tivra_platform_token") ? (
+                  <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
+                ) : toolsLoading && tools.length === 0 ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : tools.length === 0 ? (
+                  <div className="border border-border rounded-lg bg-card py-10 text-center text-sm text-muted-foreground">
+                    No @mbkns or @freecharge tools found.
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-lg bg-card overflow-hidden">
+                    <ul className="divide-y divide-border">
+                      {tools.map(tool => {
+                        const online = tool.state === 2;
+                        return (
+                          <li key={tool.id} className="flex items-center gap-3 py-3 px-4 hover:bg-muted/40 transition-colors duration-150">
+                            {/* Status dot */}
+                            <span className={`h-2 w-2 rounded-full flex-shrink-0 ${online ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                            {/* UPI + ID */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{tool.upi}</p>
+                              <p className="text-xs text-muted-foreground">ID {tool.id} · type {tool.ctType}</p>
+                            </div>
+                            {/* Badge */}
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${
+                              online
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                : "bg-muted text-muted-foreground"
+                            }`}>
+                              {online ? "Online" : "Offline"}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Order History Content */}
             {activeSection === "Order History" && (
               <div className="flex flex-col space-y-4">
@@ -622,7 +711,7 @@ export default function Dashboard() {
             )}
 
             {/* Other Sections */}
-            {!["Dashboard", "Account Manager", "Order History"].includes(activeSection) && (
+            {!["Dashboard", "Account Manager", "Tools Status", "Order History"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
                 <p className="text-muted-foreground">Content for {activeSection} coming soon.</p>
               </div>
