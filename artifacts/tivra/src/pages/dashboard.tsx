@@ -5,10 +5,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, LayoutDashboard, Users, Clock, Wrench, 
-  ShoppingCart, ScrollText, LogOut, Power, Menu, ChevronLeft 
+  ShoppingCart, ScrollText, LogOut, Power, Menu 
 } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -41,7 +40,7 @@ export default function Dashboard() {
 
   const logout = useLogout();
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("Dashboard");
   const [platformUser, setPlatformUser] = useState<PlatformUser | null>(null);
 
@@ -229,31 +228,37 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-[100dvh] flex bg-background text-foreground">
+      {/* Sidebar overlay for mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`${
-          sidebarOpen ? "w-64" : "w-16"
-        } border-r border-border bg-card flex flex-col transition-all duration-300 flex-shrink-0 z-10 sticky top-0 h-screen`}
+          sidebarOpen ? "w-64" : "w-0"
+        } fixed md:relative z-30 md:z-10 top-0 left-0 h-screen border-r border-border bg-card flex flex-col transition-all duration-300 overflow-hidden flex-shrink-0`}
       >
-        <div className={`h-16 flex items-center border-b border-border px-4 ${sidebarOpen ? "justify-between" : "justify-center"}`}>
-          {sidebarOpen && <div className="font-bold text-xl tracking-tight text-foreground truncate">Tivra</div>}
-          {!sidebarOpen && <div className="font-bold text-xl tracking-tight text-foreground flex-shrink-0">T</div>}
+        <div className="h-16 flex items-center border-b border-border px-4">
+          <div className="font-bold text-xl tracking-tight text-foreground truncate">Tivra</div>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
           {MENU_ITEMS.map((item) => (
             <button
               key={item.label}
-              onClick={() => setActiveSection(item.label)}
-              className={`w-full flex items-center rounded-md transition-colors ${sidebarOpen ? "px-3 py-2" : "justify-center py-3"} ${
+              onClick={() => { setActiveSection(item.label); setSidebarOpen(false); }}
+              className={`w-full flex items-center px-3 py-2 rounded-md transition-colors whitespace-nowrap ${
                 activeSection === item.label
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
-              title={!sidebarOpen ? item.label : undefined}
             >
-              <item.icon className={`h-5 w-5 flex-shrink-0 ${sidebarOpen ? "mr-3" : ""}`} />
-              {sidebarOpen && <span className="font-medium truncate">{item.label}</span>}
+              <item.icon className="h-5 w-5 flex-shrink-0 mr-3" />
+              <span className="font-medium">{item.label}</span>
             </button>
           ))}
         </nav>
@@ -261,25 +266,22 @@ export default function Dashboard() {
         <div className="p-2 border-t border-border space-y-1">
           <button
             onClick={handlePlatformLogout}
-            className={`w-full flex items-center rounded-md transition-colors text-muted-foreground hover:bg-destructive/10 hover:text-destructive ${sidebarOpen ? "px-3 py-2" : "justify-center py-3"}`}
-            title={!sidebarOpen ? "Platform Logout" : undefined}
+            className="w-full flex items-center px-3 py-2 rounded-md transition-colors whitespace-nowrap text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
-            <LogOut className={`h-5 w-5 flex-shrink-0 ${sidebarOpen ? "mr-3" : ""}`} />
-            {sidebarOpen && <span className="font-medium truncate">Platform Logout</span>}
+            <LogOut className="h-5 w-5 flex-shrink-0 mr-3" />
+            <span className="font-medium">Platform Logout</span>
           </button>
           <button
             onClick={handleAppLogout}
             disabled={logout.isPending}
             data-testid="button-signout"
-            className={`w-full flex items-center rounded-md transition-colors text-muted-foreground hover:bg-muted hover:text-foreground ${sidebarOpen ? "px-3 py-2" : "justify-center py-3"}`}
-            title={!sidebarOpen ? "App Logout" : undefined}
+            className="w-full flex items-center px-3 py-2 rounded-md transition-colors whitespace-nowrap text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            {logout.isPending ? (
-              <Loader2 className={`h-5 w-5 animate-spin flex-shrink-0 ${sidebarOpen ? "mr-3" : ""}`} />
-            ) : (
-              <Power className={`h-5 w-5 flex-shrink-0 ${sidebarOpen ? "mr-3" : ""}`} />
-            )}
-            {sidebarOpen && <span className="font-medium truncate">App Logout</span>}
+            {logout.isPending
+              ? <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 mr-3" />
+              : <Power className="h-5 w-5 flex-shrink-0 mr-3" />
+            }
+            <span className="font-medium">App Logout</span>
           </button>
         </div>
       </aside>
@@ -364,56 +366,6 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* Legacy Stats Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card className="bg-card shadow-sm border-border" data-testid="card-sessions">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Sessions</CardTitle>
-                        <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-xs">Active</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground mt-1">Manage active sessions</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-card shadow-sm border-border" data-testid="card-reports">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Reports</CardTitle>
-                        <Badge variant="secondary" className="bg-accent/20 text-accent-foreground border-none text-xs">Ready</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground mt-1">View latest analytics</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-card shadow-sm border-border" data-testid="card-settings">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Settings</CardTitle>
-                        <Badge variant="secondary" className="bg-secondary text-secondary-foreground border-none text-xs">Configure</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground mt-1">Update preferences</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-card shadow-sm border-border" data-testid="card-support">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Support</CardTitle>
-                        <Badge variant="secondary" className="bg-muted text-muted-foreground border-none text-xs">Help</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground mt-1">Get team help</p>
-                    </CardContent>
-                  </Card>
-                </div>
               </>
             )}
 
