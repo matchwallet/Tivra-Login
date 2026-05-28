@@ -36,6 +36,12 @@ type DefaultTool = { id: number | string; ctType: number | string; upi: string }
 type PickupLog = { id: string; ts: number; level: "info" | "success" | "warn" | "error"; message: string };
 type AdminUserRow = { id: number; email: string; name: string; role: string; showOrderLogs: boolean };
 
+// Sibling platforms — must match server-side PLATFORMS slugs in api-server/src/routes/platforms.ts.
+const PLATFORMS: { slug: string; label: string }[] = [
+  { slug: "tivra", label: "Tivra" },
+  { slug: "miles", label: "Miles" },
+];
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -46,6 +52,23 @@ export default function Dashboard() {
   });
 
   const logout = useLogout();
+
+  // ── Active platform (per-user-session) ────────────────────────────────────
+  const [platform, setPlatform] = useState<string>(() => {
+    const s = localStorage.getItem("active_platform");
+    return PLATFORMS.some(p => p.slug === s) ? s! : "tivra";
+  });
+  const platformLabel = PLATFORMS.find(p => p.slug === platform)?.label ?? platform;
+  const pkey = (suffix: string) => `${platform}_${suffix}`;
+  const apiBase = `/api/${platform}`;
+  const tokenHeader = `x-${platform}-token`;
+  // Ref tracks the active platform so async callbacks can detect a switch
+  // mid-flight and drop stale-platform responses before calling setState.
+  const platformRef = useRef(platform);
+  useEffect(() => {
+    platformRef.current = platform;
+    localStorage.setItem("active_platform", platform);
+  }, [platform]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("Dashboard");
@@ -91,7 +114,7 @@ export default function Dashboard() {
 
   // Default tool & pickup logs
   const [defaultTool, setDefaultTool] = useState<DefaultTool | null>(() => {
-    try { const s = localStorage.getItem("tivra_default_tool"); return s ? JSON.parse(s) : null; } catch { return null; }
+    try { const s = localStorage.getItem(pkey("default_tool")); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [pickupLogs, setPickupLogs] = useState<PickupLog[]>([]);
   const pickupBusyRef = useRef(false);
@@ -126,27 +149,39 @@ export default function Dashboard() {
     }
   }, [error, setLocation, toast]);
 
+  // Re-hydrate platform-scoped state (user info, default tool, tools, waitOrders)
+  // whenever the active platform changes.
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("tivra_platform_user");
-      if (stored) {
-        setPlatformUser(JSON.parse(stored));
-      }
-    } catch (e) {
-      // ignore
+      const stored = localStorage.getItem(pkey("platform_user"));
+      setPlatformUser(stored ? JSON.parse(stored) : null);
+    } catch {
+      setPlatformUser(null);
     }
-  }, []);
+    try {
+      const dt = localStorage.getItem(pkey("default_tool"));
+      setDefaultTool(dt ? JSON.parse(dt) : null);
+    } catch {
+      setDefaultTool(null);
+    }
+    // Clear platform-specific transient state to avoid leaking other platform's data
+    setTools([]);
+    setWaitOrders([]);
+    setOrders([]);
+    setWaitOrdersAuto(false);
+    handledRptsRef.current.clear();
+    lastSbinOrdersRef.current = [];
+  }, [platform]);
 
-  // Load accounts on mount: server is source of truth, localStorage is cache
+  // Load accounts + per-platform default tools on mount.
+  // Accounts are shared across platforms (same bank account last-4); default tool is per-platform.
   useEffect(() => {
-    // 1. Hydrate from cache immediately so UI/autoTick don't see empty state
     try {
       const storedAccounts = localStorage.getItem("tivra_accounts");
       if (storedAccounts) setAccounts(JSON.parse(storedAccounts));
     } catch (e) {
       // ignore
     }
-    // 2. Fetch authoritative settings from server, then mirror to localStorage
     const jwt = localStorage.getItem("tivra_token");
     if (jwt) {
       const auth = { Authorization: `Bearer ${jwt}` };
@@ -159,36 +194,46 @@ export default function Dashboard() {
           }
         })
         .catch(() => {});
+      const platformAtFetch = platform;
       fetch("/api/me/default-tool", { headers: auth })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (data && data.defaultTool !== undefined) {
-            const dt = data.defaultTool as DefaultTool | null;
-            setDefaultTool(dt);
-            if (dt) localStorage.setItem("tivra_default_tool", JSON.stringify(dt));
-            else localStorage.removeItem("tivra_default_tool");
+          // New shape: { defaultTools: { tivra: {...}, miles: {...} } }
+          const map = (data && data.defaultTools && typeof data.defaultTools === "object")
+            ? data.defaultTools as Record<string, DefaultTool>
+            : {};
+          // Mirror every platform's default tool into its localStorage slot
+          for (const p of PLATFORMS) {
+            const dt = map[p.slug] ?? null;
+            const key = `${p.slug}_default_tool`;
+            if (dt) localStorage.setItem(key, JSON.stringify(dt));
+            else localStorage.removeItem(key);
+          }
+          // Only update current view if user hasn't switched platforms mid-flight
+          if (platformRef.current === platformAtFetch) {
+            setDefaultTool(map[platform] ?? null);
           }
         })
         .catch(() => {});
     }
-    // 3. Cross-tab sync: if another tab edits accounts/default-tool, mirror into this tab
+    // Cross-tab sync: any tab editing accounts or any platform's default tool mirrors here
     const onStorage = (e: StorageEvent) => {
       if (e.key === "tivra_accounts" && e.newValue) {
         try { setAccounts(JSON.parse(e.newValue)); } catch {}
       }
-      if (e.key === "tivra_default_tool") {
+      if (e.key === pkey("default_tool")) {
         try { setDefaultTool(e.newValue ? JSON.parse(e.newValue) : null); } catch {}
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [platform]);
 
   // ── Platform session management ───────────────────────────────────────────
 
   const handlePlatformSessionExpired = useCallback(() => {
-    localStorage.removeItem("tivra_platform_token");
-    localStorage.removeItem("tivra_platform_user");
+    localStorage.removeItem(pkey("platform_token"));
+    localStorage.removeItem(pkey("platform_user"));
     setPlatformUser(null);
     setModalStep(1);
     setPhone("");
@@ -201,9 +246,9 @@ export default function Dashboard() {
       title: "Platform session expired",
       description: "Please log in to the platform again.",
     });
-  }, [toast]);
+  }, [toast, platform]);
 
-  // Wrapper: fetch any /api/tivra/* endpoint and auto-handle 403
+  // Wrapper: fetch any ${apiBase}/* endpoint and auto-handle 403
   const platformFetch = useCallback(async (input: RequestInfo, init?: RequestInit): Promise<any> => {
     const res = await fetch(input, init);
     const json = await res.json();
@@ -217,22 +262,22 @@ export default function Dashboard() {
   // Background poll: verify platform session every 5 s
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    const token = localStorage.getItem("tivra_platform_token");
+    const token = localStorage.getItem(pkey("platform_token"));
     if (!token || !platformUser) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
     const check = async () => {
       try {
-        const json = await fetch("/api/tivra/userinfo", {
-          headers: { "x-tivra-token": localStorage.getItem("tivra_platform_token") || "" },
+        const json = await fetch(`${apiBase}/userinfo`, {
+          headers: { [tokenHeader]: localStorage.getItem(pkey("platform_token")) || "" },
         }).then(r => r.json());
         if (json.code === 403) handlePlatformSessionExpired();
       } catch { /* network errors are silent */ }
     };
     pollRef.current = setInterval(check, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [platformUser, handlePlatformSessionExpired]);
+  }, [platformUser, handlePlatformSessionExpired, platform]);
 
   const handleAppLogout = () => {
     logout.mutate(undefined, {
@@ -244,12 +289,12 @@ export default function Dashboard() {
   };
 
   const handlePlatformLogout = () => {
-    localStorage.removeItem("tivra_platform_token");
-    localStorage.removeItem("tivra_platform_user");
+    localStorage.removeItem(pkey("platform_token"));
+    localStorage.removeItem(pkey("platform_user"));
     setPlatformUser(null);
     toast({
       title: "Platform Logged Out",
-      description: "Successfully disconnected from Tivra platform."
+      description: `Successfully disconnected from ${platformLabel} platform.`
     });
   };
 
@@ -257,14 +302,14 @@ export default function Dashboard() {
     setIsLoadingPlatform(true);
     try {
       if (modalStep === 1) {
-        const checkRes = await fetch("/api/tivra/check", {
+        const checkRes = await fetch(`${apiBase}/check`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, password })
         }).then(r => r.json());
         if (checkRes.code !== 0) throw new Error(checkRes.msg || "Invalid credentials");
 
-        const tokenRes = await fetch("/api/tivra/sendtoken", {
+        const tokenRes = await fetch(`${apiBase}/sendtoken`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone })
@@ -280,7 +325,7 @@ export default function Dashboard() {
         const currentSendtoken = tokenRes.data as string;
         setSendtoken(currentSendtoken);
 
-        const sendRes = await fetch("/api/tivra/sendlogin", {
+        const sendRes = await fetch(`${apiBase}/sendlogin`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, password, sendtoken: currentSendtoken })
@@ -314,7 +359,7 @@ export default function Dashboard() {
     } catch (e) {}
     const ip = ipObj.ip || "";
 
-    const res = await fetch("/api/tivra/login", {
+    const res = await fetch(`${apiBase}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone, password, ip, sendtoken: stoken, smscode })
@@ -323,22 +368,22 @@ export default function Dashboard() {
     if (res.code !== 0) throw new Error(res.msg || "Login failed");
 
     const logintoken = res.data as string;
-    localStorage.setItem("tivra_platform_token", logintoken);
+    localStorage.setItem(pkey("platform_token"), logintoken);
 
     toast({
       title: "Platform token received",
       description: logintoken,
     });
 
-    const userRes = await fetch("/api/tivra/userinfo", {
+    const userRes = await fetch(`${apiBase}/userinfo`, {
       method: "GET",
-      headers: { "x-tivra-token": logintoken }
+      headers: { [tokenHeader]: logintoken }
     }).then(r => r.json());
     
     if (userRes.code !== 0) throw new Error(userRes.msg || "Failed to fetch user info");
     
     const userData = userRes.data;
-    localStorage.setItem("tivra_platform_user", JSON.stringify(userData));
+    localStorage.setItem(pkey("platform_user"), JSON.stringify(userData));
     setPlatformUser({
       username: userData.username,
       itoken: userData.itoken,
@@ -364,16 +409,16 @@ export default function Dashboard() {
     if (!token) return;
     setIsLoadingPlatform(true);
     try {
-      const userRes = await fetch("/api/tivra/userinfo", {
+      const userRes = await fetch(`${apiBase}/userinfo`, {
         method: "GET",
-        headers: { "x-tivra-token": token }
+        headers: { [tokenHeader]: token }
       }).then(r => r.json());
 
       if (userRes.code !== 0) throw new Error(userRes.msg || "Invalid token");
 
       const userData = userRes.data;
-      localStorage.setItem("tivra_platform_token", token);
-      localStorage.setItem("tivra_platform_user", JSON.stringify(userData));
+      localStorage.setItem(pkey("platform_token"), token);
+      localStorage.setItem(pkey("platform_user"), JSON.stringify(userData));
       setPlatformUser({
         username: userData.username,
         itoken: userData.itoken,
@@ -452,13 +497,15 @@ export default function Dashboard() {
   };
 
   const fetchOrders = async (page: number) => {
-    const pToken = localStorage.getItem("tivra_platform_token");
+    const pToken = localStorage.getItem(pkey("platform_token"));
     if (!pToken) return;
+    const platformAtFetch = platform;
     setOrdersLoading(true);
     try {
-      const res = await platformFetch(`/api/tivra/orders?page=${page}&limit=10`, {
-        headers: { "x-tivra-token": pToken },
+      const res = await platformFetch(`${apiBase}/orders?page=${page}&limit=10`, {
+        headers: { [tokenHeader]: pToken },
       });
+      if (platformRef.current !== platformAtFetch) return;
       if (res.code === 0) {
         if (page === 1) {
           setOrders(res.data.list || []);
@@ -471,18 +518,20 @@ export default function Dashboard() {
     } catch (e: any) {
       if (e?.message !== "session_expired") console.error("Failed to fetch orders", e);
     } finally {
-      setOrdersLoading(false);
+      if (platformRef.current === platformAtFetch) setOrdersLoading(false);
     }
   };
 
   const fetchTools = async () => {
-    const pToken = localStorage.getItem("tivra_platform_token");
+    const pToken = localStorage.getItem(pkey("platform_token"));
     if (!pToken) return;
+    const platformAtFetch = platform;
     setToolsLoading(true);
     try {
-      const res = await platformFetch("/api/tivra/tools", {
-        headers: { "x-tivra-token": pToken },
+      const res = await platformFetch(`${apiBase}/tools`, {
+        headers: { [tokenHeader]: pToken },
       });
+      if (platformRef.current !== platformAtFetch) return;
       if (res.code === 0) {
         const filtered = (res.data as any[]).filter(
           t => t.upi && (t.upi.includes("@mbkns") || t.upi.includes("@freecharge"))
@@ -492,7 +541,7 @@ export default function Dashboard() {
     } catch (e: any) {
       if (e?.message !== "session_expired") { /* ignore */ }
     } finally {
-      setToolsLoading(false);
+      if (platformRef.current === platformAtFetch) setToolsLoading(false);
     }
   };
 
@@ -509,7 +558,7 @@ export default function Dashboard() {
     fetch("/api/me/default-tool", {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({ defaultTool: d }),
+      body: JSON.stringify({ platform, defaultTool: d }),
     }).catch(() => {
       toast({ variant: "destructive", title: "Failed to save default tool to server" });
     });
@@ -517,14 +566,14 @@ export default function Dashboard() {
 
   const setToolAsDefault = (tool: any) => {
     const d: DefaultTool = { id: tool.id, ctType: tool.ctType, upi: tool.upi };
-    localStorage.setItem("tivra_default_tool", JSON.stringify(d));
+    localStorage.setItem(pkey("default_tool"), JSON.stringify(d));
     setDefaultTool(d);
     persistDefaultTool(d);
     toast({ title: "Default tool set", description: tool.upi });
   };
 
   const clearDefaultTool = () => {
-    localStorage.removeItem("tivra_default_tool");
+    localStorage.removeItem(pkey("default_tool"));
     setDefaultTool(null);
     persistDefaultTool(null);
     toast({ title: "Default tool cleared" });
@@ -544,7 +593,7 @@ export default function Dashboard() {
       const p = await Notification.requestPermission();
       setNotifPerm(p);
       if (p === "granted") {
-        new Notification("Tivra notifications enabled", { body: "You'll be alerted when an order is picked up." });
+        new Notification(`${platformLabel} notifications enabled`, { body: "You'll be alerted when an order is picked up." });
         toast({ title: "Notifications enabled" });
       } else if (p === "denied") {
         toast({ variant: "destructive", title: "Notifications blocked", description: "Enable them in your browser site settings." });
@@ -552,7 +601,7 @@ export default function Dashboard() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Permission request failed", description: e?.message });
     }
-  }, [toast]);
+  }, [toast, platformLabel]);
 
   // Short success beep using the Web Audio API — no asset file needed.
   const playBeep = useCallback(() => {
@@ -624,15 +673,15 @@ export default function Dashboard() {
   };
 
   const processPaymentSlip = async (order: any, action: "cancel" | "finish") => {
-    const pToken = localStorage.getItem("tivra_platform_token");
+    const pToken = localStorage.getItem(pkey("platform_token"));
     if (!pToken) return;
     setProcessBusy(true);
     try {
       const body: any = { order_id: order.rptNo || order.orderNo, process: action };
       if (action === "cancel") body.cancel_remark = cancelRemark || "Don't want to buy";
-      const r = await platformFetch("/api/tivra/processpayment", {
+      const r = await platformFetch(`${apiBase}/processpayment`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-tivra-token": pToken },
+        headers: { "Content-Type": "application/json", [tokenHeader]: pToken },
         body: JSON.stringify(body),
       });
       if (r.code === 0) {
@@ -660,13 +709,15 @@ export default function Dashboard() {
   };
 
   const fetchWaitOrders = async () => {
-    const pToken = localStorage.getItem("tivra_platform_token");
+    const pToken = localStorage.getItem(pkey("platform_token"));
     if (!pToken) return;
+    const platformAtFetch = platform;
     setWaitOrdersLoading(true);
     try {
-      const res = await platformFetch("/api/tivra/waitorders", {
-        headers: { "x-tivra-token": pToken },
+      const res = await platformFetch(`${apiBase}/waitorders`, {
+        headers: { [tokenHeader]: pToken },
       });
+      if (platformRef.current !== platformAtFetch) return;
       if (res.code === 0) {
         const list = res.data?.list || [];
         setWaitOrdersTotal(list.length);
@@ -678,14 +729,14 @@ export default function Dashboard() {
     } catch (e: any) {
       if (e?.message !== "session_expired") { /* ignore */ }
     } finally {
-      setWaitOrdersLoading(false);
+      if (platformRef.current === platformAtFetch) setWaitOrdersLoading(false);
     }
   };
 
   // Auto-buy tick: runs the entire pipeline on each interval
   const autoTick = useCallback(async () => {
     if (pickupBusyRef.current) return;
-    const pToken = localStorage.getItem("tivra_platform_token");
+    const pToken = localStorage.getItem(pkey("platform_token"));
     if (!pToken) return;
     // Claim the tick immediately so a slow tick can never overlap with the next interval.
     pickupBusyRef.current = true;
@@ -697,8 +748,8 @@ export default function Dashboard() {
     let sbinOrders: any[] = lastSbinOrdersRef.current;
     let usedCache = true;
     try {
-      const woRes = await platformFetch("/api/tivra/waitorders", {
-        headers: { "x-tivra-token": pToken },
+      const woRes = await platformFetch(`${apiBase}/waitorders`, {
+        headers: { [tokenHeader]: pToken },
       });
       if (woRes.code === 0) {
         const list = woRes.data?.list || [];
@@ -731,7 +782,7 @@ export default function Dashboard() {
     if (usedCache && sbinOrders.length === 0) return;
 
     // 2. Read default tool
-    const dtRaw = localStorage.getItem("tivra_default_tool");
+    const dtRaw = localStorage.getItem(pkey("default_tool"));
     if (!dtRaw) {
       addPickupLog("warn", "No default tool selected — open Tools Status to pick one.");
       setWaitOrdersAuto(false);
@@ -742,8 +793,8 @@ export default function Dashboard() {
 
     // 3. Hard abort if user already has a Paying order
     try {
-      const histRes = await platformFetch("/api/tivra/orders?page=1&limit=10", {
-        headers: { "x-tivra-token": pToken },
+      const histRes = await platformFetch(`${apiBase}/orders?page=1&limit=10`, {
+        headers: { [tokenHeader]: pToken },
       });
       if (histRes.code === 0) {
         const paying = (histRes.data?.list || []).find((o: any) => o.orderState === 1);
@@ -759,8 +810,8 @@ export default function Dashboard() {
 
     // 4. Confirm default tool is online
     try {
-      const toolsRes = await platformFetch("/api/tivra/tools", {
-        headers: { "x-tivra-token": pToken },
+      const toolsRes = await platformFetch(`${apiBase}/tools`, {
+        headers: { [tokenHeader]: pToken },
       });
       if (toolsRes.code === 0) {
         const list: any[] = toolsRes.data || [];
@@ -795,9 +846,9 @@ export default function Dashboard() {
     const pick = matches[0];
     addPickupLog("info", `Picking up ${pick.rptNo} · ₹${pick.amount} · ${pick.acctName} (…${String(pick.acctNo).slice(-4)})`);
     try {
-      const buyRes = await platformFetch("/api/tivra/pickup", {
+      const buyRes = await platformFetch(`${apiBase}/pickup`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-tivra-token": pToken },
+        headers: { "Content-Type": "application/json", [tokenHeader]: pToken },
         body: JSON.stringify({ order_id: pick.rptNo, ct_id: dt.id, ctType: dt.ctType }),
       });
       if (buyRes.code !== 0) {
@@ -811,8 +862,8 @@ export default function Dashboard() {
 
       // 7. Fetch detail and notify
       try {
-        const detailRes = await platformFetch(`/api/tivra/orderdetail?id=${encodeURIComponent(pick.rptNo)}&ctime=${encodeURIComponent(ctime)}`, {
-          headers: { "x-tivra-token": pToken },
+        const detailRes = await platformFetch(`${apiBase}/orderdetail?id=${encodeURIComponent(pick.rptNo)}&ctime=${encodeURIComponent(ctime)}`, {
+          headers: { [tokenHeader]: pToken },
         });
         if (detailRes.code === 0) {
           const d = detailRes.data;
@@ -828,15 +879,17 @@ export default function Dashboard() {
     } finally {
       pickupBusyRef.current = false;
     }
-  }, [addPickupLog]);
+  }, [addPickupLog, platform, platformFetch, notify]);
 
-  // Fetch orders / tools when active section changes (declared after the functions they call)
+  // Fetch orders / tools when active section OR platform changes. The platform-switch
+  // re-hydration effect clears these lists, so we must refetch to repopulate.
   useEffect(() => {
     if (activeSection === "Order History") fetchOrders(1);
     if (activeSection === "Tools Status") fetchTools();
     if (activeSection === "Orders") fetchWaitOrders();
     if (activeSection === "Admin") fetchAdminUsers();
-  }, [activeSection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, platform]);
 
   // Auto-buy loop: runs every 5s when toggle is on AND on Orders section
   const waitOrdersAutoRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -892,8 +945,19 @@ export default function Dashboard() {
           sidebarOpen ? "w-64" : "w-0"
         } fixed md:relative z-30 md:z-10 top-0 left-0 h-screen border-r border-border bg-card flex flex-col transition-all duration-300 overflow-hidden flex-shrink-0`}
       >
-        <div className="h-16 flex items-center border-b border-border px-4">
-          <div className="font-bold text-xl tracking-tight text-foreground truncate">Tivra</div>
+        <div className="h-16 flex items-center border-b border-border px-4 gap-2">
+          <div className="font-bold text-xl tracking-tight text-foreground truncate">{platformLabel}</div>
+          <select
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            className="ml-auto text-xs bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            data-testid="select-platform-sidebar"
+            aria-label="Switch platform"
+          >
+            {PLATFORMS.map(p => (
+              <option key={p.slug} value={p.slug}>{p.label}</option>
+            ))}
+          </select>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
@@ -966,7 +1030,7 @@ export default function Dashboard() {
                 data-testid="button-tivra-login"
                 size="sm"
               >
-                Tivra Login
+                {platformLabel} Login
               </Button>
             )}
           </div>
@@ -1202,7 +1266,7 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {!localStorage.getItem("tivra_platform_token") ? (
+                {!localStorage.getItem(pkey("platform_token")) ? (
                   <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
                 ) : toolsLoading && tools.length === 0 ? (
                   <div className="flex justify-center py-12">
@@ -1261,7 +1325,7 @@ export default function Dashboard() {
             {/* Order History Content */}
             {activeSection === "Order History" && (
               <div className="flex flex-col space-y-4">
-                {!localStorage.getItem("tivra_platform_token") ? (
+                {!localStorage.getItem(pkey("platform_token")) ? (
                   <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
                 ) : (
                   <div className="flex flex-col border border-border rounded-lg bg-card overflow-hidden">
@@ -1424,7 +1488,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {!localStorage.getItem("tivra_platform_token") ? (
+                {!localStorage.getItem(pkey("platform_token")) ? (
                   <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
                 ) : waitOrdersLoading && waitOrders.length === 0 ? (
                   <div className="flex justify-center py-12">
@@ -1762,17 +1826,17 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {/* Tivra Login Modal */}
+      {/* Platform Login Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>
-              {modalStep === 1 && "Sign in to Tivra"}
+              {modalStep === 1 && `Sign in to ${platformLabel}`}
               {modalStep === 2 && "Enter OTP"}
               {modalStep === 3 && "Connected"}
             </DialogTitle>
             <DialogDescription>
-              {modalStep === 1 && "Connect your Tivra platform account to access tools."}
+              {modalStep === 1 && `Connect your ${platformLabel} platform account to access tools.`}
               {modalStep === 2 && "We sent a code to your phone. Please enter it below."}
               {modalStep === 3 && "Your account is successfully linked."}
             </DialogDescription>

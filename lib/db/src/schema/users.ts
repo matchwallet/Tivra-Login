@@ -9,6 +9,9 @@ export type DefaultToolSetting = {
   upi: string;
 };
 
+// Keyed by platform slug (e.g. "tivra", "miles") → tool setting.
+export type DefaultToolsMap = Record<string, DefaultToolSetting>;
+
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -17,7 +20,9 @@ export const usersTable = pgTable("users", {
   role: text("role").notNull().default("user"),
   showOrderLogs: boolean("show_order_logs").notNull().default(true),
   accounts: text("accounts").array().notNull().default(sql`'{}'::text[]`),
-  defaultTool: jsonb("default_tool").$type<DefaultToolSetting | null>(),
+  // Stored as a per-platform map. Legacy rows may hold a flat
+  // { id, ctType, upi } shape — migrate-on-read in the API layer.
+  defaultTool: jsonb("default_tool").$type<DefaultToolsMap | DefaultToolSetting | null>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
