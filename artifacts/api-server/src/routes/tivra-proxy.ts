@@ -142,9 +142,21 @@ router.get("/tivra/waitorders", async (req, res) => {
     const r = await fetch(url, {
       headers: { ...commonHeaders, indiatoken: token },
     });
-    res.json(await r.json());
-  } catch (err) {
-    res.status(502).json({ code: -1, msg: "Proxy error" });
+    const text = await r.text();
+    if (!r.ok) {
+      req.log.warn({ status: r.status, body: text.slice(0, 500) }, "waitorders upstream non-OK");
+      res.status(502).json({ code: -1, msg: `Upstream ${r.status}`, upstream: text.slice(0, 200) });
+      return;
+    }
+    try {
+      res.json(JSON.parse(text));
+    } catch {
+      req.log.warn({ body: text.slice(0, 500) }, "waitorders upstream non-JSON");
+      res.status(502).json({ code: -1, msg: "Upstream non-JSON", upstream: text.slice(0, 200) });
+    }
+  } catch (err: any) {
+    req.log.error({ err: err?.message, stack: err?.stack }, "waitorders proxy threw");
+    res.status(502).json({ code: -1, msg: `Proxy error: ${err?.message || "unknown"}` });
   }
 });
 
