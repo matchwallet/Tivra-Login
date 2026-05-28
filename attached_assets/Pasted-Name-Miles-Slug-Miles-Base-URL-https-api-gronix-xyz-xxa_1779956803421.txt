@@ -1,0 +1,126 @@
+Name: Miles
+Slug: Miles
+Base URL: https://api.gronix.xyz/xxapi
+Login flow: same as tivra
+Token header: indiatoken
+Response envelope: same {code,msg,data}
+Bank filter prefix: SBIN
+Waitorders default query: min_amount=5000&max_amount=100000&method=1
+
+cURLs (paste from browser DevTools):
+1. checkphonepassword: 
+curl 'https://api.gronix.xyz/xxapi/checkSmsNew' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'content-type: multipart/form-data; boundary=----WebKitFormBoundaryWeStbtITIBl5ltjo' \
+  -H 'dnt: 1' \
+  -H 'indiatoken;' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP' \
+  --data-raw $'------WebKitFormBoundaryWeStbtITIBl5ltjo\r\nContent-Disposition: form-data; name="phone"\r\n\r\n7505250582\r\n------WebKitFormBoundaryWeStbtITIBl5ltjo\r\nContent-Disposition: form-data; name="password"\r\n\r\nGopi1998\r\n------WebKitFormBoundaryWeStbtITIBl5ltjo--\r\n'
+
+2. sendtoken: 
+curl 'https://api.gronix.xyz/xxapi/getsendtken' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'content-type: application/x-www-form-urlencoded;charset=UTF-8' \
+  -H 'dnt: 1' \
+  -H 'indiatoken;' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP' \
+  --data-raw 'token=XXXX.DUMMY.TOKEN.XXXX&clientId=GPSya2Os3wRErSnjx3juhF7o51Ofvf8oG1tdBOYY&phone=7505250582'
+
+
+3. login: 
+curl 'https://api.gronix.xyz/xxapi/login' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'content-type: multipart/form-data; boundary=----WebKitFormBoundarybwumAzjMoqpZdyng' \
+  -H 'dnt: 1' \
+  -H 'indiatoken;' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP' \
+  --data-raw $'------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="phone"\r\n\r\n7505250582\r\n------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="password"\r\n\r\nGopi1998\r\n------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="ip"\r\n\r\n2409:40d2:116f:f9ca:5c16:bf8f:4f:39cf\r\n------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="sendtoken"\r\n\r\n\r\n------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="smscode"\r\n\r\n0000\r\n------WebKitFormBoundarybwumAzjMoqpZdyng\r\nContent-Disposition: form-data; name="clientId"\r\n\r\nGPSya2Os3wRErSnjx3juhF7o51Ofvf8oG1tdBOYY\r\n------WebKitFormBoundarybwumAzjMoqpZdyng--\r\n'
+
+
+4. userinfo: 
+curl 'https://api.gronix.xyz/xxapi/userinfo' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'dnt: 1' \
+  -H 'indiatoken: 1a402dcc29ff4f5aaca34987f204a709' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP'
+
+
+5. tools: 
+curl 'https://api.gronix.xyz/xxapi/collectiontoollist' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'dnt: 1' \
+  -H 'indiatoken: 1a402dcc29ff4f5aaca34987f204a709' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP'
+
+6. orders: 
+curl 'https://api.gronix.xyz/xxapi/buyitoken/waitpayerpaymentslip?page=1&limit=50&if_asc=true&min_amount=100&max_amount=100000&method=0&date_asc=0' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'accept-language: en-us' \
+  -H 'dnt: 1' \
+  -H 'indiatoken: 1a402dcc29ff4f5aaca34987f204a709' \
+  -H 'origin: https://milesm.skin' \
+  -H 'priority: u=1, i' \
+  -H 'referer: https://milesm.skin/' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?1' \
+  -H 'sec-ch-ua-platform: "Android"' \
+  -H 'sec-fetch-dest: empty' \
+  -H 'sec-fetch-mode: cors' \
+  -H 'sec-fetch-site: cross-site' \
+  -H 'user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36' \
+  -H 'x-rs-cfg-milesreqgate: A7M2X9Q4L8KP'
