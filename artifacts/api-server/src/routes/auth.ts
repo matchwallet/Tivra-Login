@@ -7,7 +7,10 @@ import { RegisterBody, LoginBody } from "@workspace/api-zod";
 
 const router = Router();
 
-const JWT_SECRET = process.env.SESSION_SECRET ?? "tivra-dev-secret";
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET environment variable is required");
+}
+const JWT_SECRET: string = process.env.SESSION_SECRET;
 
 router.post("/auth/register", async (req, res) => {
   const parsed = RegisterBody.safeParse(req.body);
@@ -121,6 +124,8 @@ router.get("/auth/me", async (req, res) => {
     id: user.id,
     email: user.email,
     name: user.name,
+    role: user.role,
+    showOrderLogs: user.showOrderLogs,
     createdAt: user.createdAt.toISOString(),
   });
 });

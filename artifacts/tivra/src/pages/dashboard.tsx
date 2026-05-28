@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { 
   Loader2, LayoutDashboard, Users, Clock, Wrench, 
   ShoppingCart, ScrollText, LogOut, Power, Menu,
-  Search, X, Plus, RefreshCw
+  Search, X, Plus, RefreshCw, Shield, Star, CheckCircle2, AlertCircle, Info
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,13 +23,18 @@ type PlatformUser = {
 };
 
 const MENU_ITEMS = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Account Manager", icon: Users },
-  { label: "Order History", icon: Clock },
-  { label: "Tools Status", icon: Wrench },
-  { label: "Orders", icon: ShoppingCart },
-  { label: "Live Logs", icon: ScrollText },
+  { label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
+  { label: "Account Manager", icon: Users, adminOnly: false },
+  { label: "Order History", icon: Clock, adminOnly: false },
+  { label: "Tools Status", icon: Wrench, adminOnly: false },
+  { label: "Orders", icon: ShoppingCart, adminOnly: false },
+  { label: "Live Logs", icon: ScrollText, adminOnly: false },
+  { label: "Admin", icon: Shield, adminOnly: true },
 ];
+
+type DefaultTool = { id: number | string; ctType: number | string; upi: string };
+type PickupLog = { id: string; ts: number; level: "info" | "success" | "warn" | "error"; message: string };
+type AdminUserRow = { id: number; email: string; name: string; role: string; showOrderLogs: boolean };
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
@@ -79,6 +85,18 @@ export default function Dashboard() {
   const [waitOrders, setWaitOrders] = useState<any[]>([]);
   const [waitOrdersLoading, setWaitOrdersLoading] = useState(false);
   const [waitOrdersAuto, setWaitOrdersAuto] = useState(false);
+
+  // Default tool & pickup logs
+  const [defaultTool, setDefaultTool] = useState<DefaultTool | null>(() => {
+    try { const s = localStorage.getItem("tivra_default_tool"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [pickupLogs, setPickupLogs] = useState<PickupLog[]>([]);
+  const pickupBusyRef = useRef(false);
+  const handledRptsRef = useRef<Set<string>>(new Set());
+
+  // Admin state
+  const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
 
   useEffect(() => {
     if (error) {
@@ -406,6 +424,63 @@ export default function Dashboard() {
     }
   };
 
+  const addPickupLog = useCallback((level: PickupLog["level"], message: string) => {
+    setPickupLogs(prev => [
+      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, ts: Date.now(), level, message },
+      ...prev,
+    ].slice(0, 100));
+  }, []);
+
+  const setToolAsDefault = (tool: any) => {
+    const d: DefaultTool = { id: tool.id, ctType: tool.ctType, upi: tool.upi };
+    localStorage.setItem("tivra_default_tool", JSON.stringify(d));
+    setDefaultTool(d);
+    toast({ title: "Default tool set", description: tool.upi });
+  };
+
+  const clearDefaultTool = () => {
+    localStorage.removeItem("tivra_default_tool");
+    setDefaultTool(null);
+    toast({ title: "Default tool cleared" });
+  };
+
+  const notify = (title: string, body: string) => {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification(title, { body });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const fetchAdminUsers = async () => {
+    setAdminLoading(true);
+    try {
+      const r = await fetch("/api/admin/users", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("tivra_token") || ""}` },
+      });
+      if (r.ok) setAdminUsers(await r.json());
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const updateUserShowOrderLogs = async (id: number, showOrderLogs: boolean) => {
+    const r = await fetch(`/api/admin/users/${id}/show-order-logs`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("tivra_token") || ""}`,
+      },
+      body: JSON.stringify({ showOrderLogs }),
+    });
+    if (r.ok) {
+      setAdminUsers(prev => prev.map(u => (u.id === id ? { ...u, showOrderLogs } : u)));
+      toast({ title: "Updated", description: `Order logs ${showOrderLogs ? "enabled" : "disabled"}.` });
+    } else {
+      toast({ variant: "destructive", title: "Update failed" });
+    }
+  };
+
   const fetchWaitOrders = async () => {
     const pToken = localStorage.getItem("tivra_platform_token");
     if (!pToken) return;
@@ -427,22 +502,155 @@ export default function Dashboard() {
     }
   };
 
+  // Auto-buy tick: runs the entire pipeline on each interval
+  const autoTick = useCallback(async () => {
+    if (pickupBusyRef.current) return;
+    const pToken = localStorage.getItem("tivra_platform_token");
+    if (!pToken) return;
+    // Claim the tick immediately so a slow tick can never overlap with the next interval.
+    pickupBusyRef.current = true;
+    try {
+    // 1. Read default tool
+    const dtRaw = localStorage.getItem("tivra_default_tool");
+    if (!dtRaw) {
+      addPickupLog("warn", "No default tool selected — open Tools Status to pick one.");
+      setWaitOrdersAuto(false);
+      return;
+    }
+    let dt: DefaultTool;
+    try { dt = JSON.parse(dtRaw); } catch { addPickupLog("error", "Default tool config invalid."); setWaitOrdersAuto(false); return; }
+
+    // 2. Hard abort if user already has a Paying order
+    try {
+      const histRes = await platformFetch("/api/tivra/orders?page=1&limit=10", {
+        headers: { "x-tivra-token": pToken },
+      });
+      if (histRes.code === 0) {
+        const paying = (histRes.data?.list || []).find((o: any) => o.orderState === 1);
+        if (paying) {
+          addPickupLog("error", `Hard abort — order ${paying.orderNo} is still Paying.`);
+          setWaitOrdersAuto(false);
+          return;
+        }
+      }
+    } catch (e: any) {
+      if (e?.message === "session_expired") return;
+    }
+
+    // 3. Confirm default tool is online
+    try {
+      const toolsRes = await platformFetch("/api/tivra/tools", {
+        headers: { "x-tivra-token": pToken },
+      });
+      if (toolsRes.code === 0) {
+        const list: any[] = toolsRes.data || [];
+        const match = list.find(t => String(t.id) === String(dt.id));
+        if (!match) { addPickupLog("warn", `Default tool ${dt.upi} not in tool list.`); return; }
+        if (match.state !== 2) { addPickupLog("warn", `Default tool ${dt.upi} is offline — skipping tick.`); return; }
+        setTools(list.filter(t => t.upi && (t.upi.includes("@mbkns") || t.upi.includes("@freecharge"))));
+      }
+    } catch (e: any) {
+      if (e?.message === "session_expired") return;
+    }
+
+    // 4. Fetch wait orders, filter SBIN
+    let sbinOrders: any[] = [];
+    try {
+      const woRes = await platformFetch("/api/tivra/waitorders", {
+        headers: { "x-tivra-token": pToken },
+      });
+      if (woRes.code === 0) {
+        sbinOrders = (woRes.data?.list || []).filter(
+          (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
+        );
+        setWaitOrders(sbinOrders);
+      }
+    } catch (e: any) {
+      if (e?.message === "session_expired") return;
+    }
+
+    // 5. Filter by acctNo last-4 matching saved accounts
+    const accountsRaw = localStorage.getItem("tivra_accounts");
+    const savedAccounts: string[] = accountsRaw ? (() => { try { return JSON.parse(accountsRaw); } catch { return []; } })() : [];
+    if (savedAccounts.length === 0) {
+      addPickupLog("warn", "No saved accounts in Account Manager — auto cannot match.");
+      return;
+    }
+    const matches = sbinOrders.filter((o: any) => {
+      const acct = String(o.acctNo || "");
+      if (acct.length < 4) return false;
+      const last4 = acct.slice(-4);
+      return savedAccounts.includes(last4) && !handledRptsRef.current.has(String(o.rptNo));
+    });
+    if (matches.length === 0) {
+      addPickupLog("info", `No matching SBIN orders — scanned ${sbinOrders.length}.`);
+      return;
+    }
+
+    // 6. Pickup first match
+    const pick = matches[0];
+    addPickupLog("info", `Picking up ${pick.rptNo} · ₹${pick.amount} · ${pick.acctName} (…${String(pick.acctNo).slice(-4)})`);
+    try {
+      const buyRes = await platformFetch("/api/tivra/pickup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-tivra-token": pToken },
+        body: JSON.stringify({ order_id: pick.rptNo, ct_id: dt.id, ctType: dt.ctType }),
+      });
+      if (buyRes.code !== 0) {
+        // Only dedup on success — let transient failures be retried on the next tick.
+        addPickupLog("error", `Pickup failed: ${buyRes.msg || "unknown error"}`);
+        return;
+      }
+      handledRptsRef.current.add(String(pick.rptNo));
+      const { ctime } = buyRes.data || {};
+      addPickupLog("success", `Picked up ${pick.rptNo} via ${dt.upi}.`);
+
+      // 7. Fetch detail and notify
+      try {
+        const detailRes = await platformFetch(`/api/tivra/orderdetail?id=${encodeURIComponent(pick.rptNo)}&ctime=${encodeURIComponent(ctime)}`, {
+          headers: { "x-tivra-token": pToken },
+        });
+        if (detailRes.code === 0) {
+          const d = detailRes.data;
+          addPickupLog("success", `Detail: ₹${d.amount} → ${d.payee_recipients_name} (${d.payee_bank_account})`);
+          notify("Order Picked Up", `₹${d.amount} · ${d.payee_recipients_name} · ${d.payee_bank_account}`);
+        }
+      } catch (e: any) {
+        if (e?.message !== "session_expired") addPickupLog("warn", "Order detail fetch failed.");
+      }
+    } catch (e: any) {
+      if (e?.message !== "session_expired") addPickupLog("error", `Pickup error: ${e?.message || e}`);
+    }
+    } finally {
+      pickupBusyRef.current = false;
+    }
+  }, [addPickupLog]);
+
   // Fetch orders / tools when active section changes (declared after the functions they call)
   useEffect(() => {
     if (activeSection === "Order History") fetchOrders(1);
     if (activeSection === "Tools Status") fetchTools();
     if (activeSection === "Orders") fetchWaitOrders();
+    if (activeSection === "Admin") fetchAdminUsers();
   }, [activeSection]);
 
-  // Auto-refresh waitOrders every 5s when toggle is on and section is active
+  // Auto-buy loop: runs every 5s when toggle is on AND on Orders section
   const waitOrdersAutoRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (waitOrdersAutoRef.current) { clearInterval(waitOrdersAutoRef.current); waitOrdersAutoRef.current = null; }
     if (waitOrdersAuto && activeSection === "Orders") {
-      waitOrdersAutoRef.current = setInterval(() => { fetchWaitOrders(); }, 5000);
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
+      addPickupLog("info", "Auto-buy started.");
+      autoTick();
+      waitOrdersAutoRef.current = setInterval(() => { autoTick(); }, 5000);
+    } else if (!waitOrdersAuto) {
+      // clear seen-set when user toggles off so we can re-attempt next time
+      handledRptsRef.current.clear();
     }
     return () => { if (waitOrdersAutoRef.current) clearInterval(waitOrdersAutoRef.current); };
-  }, [waitOrdersAuto, activeSection]);
+  }, [waitOrdersAuto, activeSection, autoTick, addPickupLog]);
 
   const filteredAccounts = accounts.filter(a => a.includes(accountSearch));
 
@@ -485,7 +693,7 @@ export default function Dashboard() {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-          {MENU_ITEMS.map((item) => (
+          {MENU_ITEMS.filter(item => !item.adminOnly || (user as any)?.role === "admin").map((item) => (
             <button
               key={item.label}
               onClick={() => { setActiveSection(item.label); setSidebarOpen(false); }}
@@ -723,6 +931,17 @@ export default function Dashboard() {
                   </button>
                 </div>
 
+                {defaultTool && (
+                  <div className="flex items-center justify-between text-xs px-3 py-2 bg-primary/5 border border-primary/20 rounded-lg">
+                    <span className="flex items-center gap-1.5">
+                      <Star className="h-3.5 w-3.5 fill-primary text-primary" />
+                      <span className="text-muted-foreground">Default:</span>
+                      <span className="font-medium text-foreground truncate">{defaultTool.upi}</span>
+                    </span>
+                    <button onClick={clearDefaultTool} className="text-muted-foreground hover:text-foreground">Clear</button>
+                  </div>
+                )}
+
                 {!localStorage.getItem("tivra_platform_token") ? (
                   <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
                 ) : toolsLoading && tools.length === 0 ? (
@@ -738,16 +957,28 @@ export default function Dashboard() {
                     <ul className="divide-y divide-border">
                       {tools.map(tool => {
                         const online = tool.state === 2;
+                        const isDefault = defaultTool && String(defaultTool.id) === String(tool.id);
                         return (
-                          <li key={tool.id} className="flex items-center gap-3 py-3 px-4 hover:bg-muted/40 transition-colors duration-150">
-                            {/* Status dot */}
+                          <li
+                            key={tool.id}
+                            onClick={() => setToolAsDefault(tool)}
+                            className={`flex items-center gap-3 py-3 px-4 transition-colors duration-150 cursor-pointer ${
+                              isDefault ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
+                            }`}
+                          >
                             <span className={`h-2 w-2 rounded-full flex-shrink-0 ${online ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-                            {/* UPI + ID */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{tool.upi}</p>
+                              <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                                {tool.upi}
+                                {isDefault && <Star className="h-3 w-3 fill-primary text-primary flex-shrink-0" />}
+                              </p>
                               <p className="text-xs text-muted-foreground">ID {tool.id} · type {tool.ctType}</p>
                             </div>
-                            {/* Badge */}
+                            {isDefault && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 bg-primary/15 text-primary">
+                                DEFAULT
+                              </span>
+                            )}
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${
                               online
                                 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
@@ -761,6 +992,9 @@ export default function Dashboard() {
                     </ul>
                   </div>
                 )}
+                <p className="text-[11px] text-muted-foreground px-1">
+                  Tap a tool to set it as the default for auto-buy.
+                </p>
               </div>
             )}
 
@@ -840,6 +1074,24 @@ export default function Dashboard() {
             {/* Orders (SBIN waiting payment) */}
             {activeSection === "Orders" && (
               <div className="flex flex-col space-y-3">
+                {/* Default tool indicator */}
+                <div className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg border ${
+                  defaultTool ? "bg-primary/5 border-primary/20" : "bg-amber-50 border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/40"
+                }`}>
+                  {defaultTool ? (
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Star className="h-3.5 w-3.5 fill-primary text-primary flex-shrink-0" />
+                      <span className="text-muted-foreground">Auto-buy via</span>
+                      <span className="font-medium text-foreground truncate">{defaultTool.upi}</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      No default tool — pick one in Tools Status before enabling Auto.
+                    </span>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">
                     {!waitOrdersLoading && (
@@ -902,10 +1154,113 @@ export default function Dashboard() {
                     </ul>
                   </div>
                 )}
+
+                {/* Pickup logs — gated by admin-controlled showOrderLogs */}
+                {(user as any)?.showOrderLogs && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium flex items-center gap-1.5">
+                        <ScrollText className="h-3.5 w-3.5 text-muted-foreground" />
+                        Auto-buy Logs
+                        {pickupLogs.length > 0 && (
+                          <span className="text-xs text-muted-foreground font-normal">({pickupLogs.length})</span>
+                        )}
+                      </span>
+                      {pickupLogs.length > 0 && (
+                        <button
+                          onClick={() => setPickupLogs([])}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="border border-border rounded-lg bg-card max-h-72 overflow-y-auto">
+                      {pickupLogs.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-6 text-center">
+                          No activity yet. Enable Auto to start picking up matching SBIN orders.
+                        </p>
+                      ) : (
+                        <ul className="divide-y divide-border">
+                          {pickupLogs.map(log => {
+                            const map = {
+                              info: { Icon: Info, cls: "text-muted-foreground" },
+                              success: { Icon: CheckCircle2, cls: "text-emerald-600 dark:text-emerald-400" },
+                              warn: { Icon: AlertCircle, cls: "text-amber-600 dark:text-amber-400" },
+                              error: { Icon: AlertCircle, cls: "text-destructive" },
+                            }[log.level];
+                            const { Icon, cls } = map;
+                            return (
+                              <li key={log.id} className="flex items-start gap-2 px-3 py-2 text-xs">
+                                <Icon className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${cls}`} />
+                                <span className="font-mono text-[10px] text-muted-foreground flex-shrink-0 mt-0.5">
+                                  {new Date(log.ts).toLocaleTimeString()}
+                                </span>
+                                <span className="text-foreground/90 break-words">{log.message}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {!["Dashboard", "Account Manager", "Tools Status", "Order History", "Orders"].includes(activeSection) && (
+            {/* Admin Section */}
+            {activeSection === "Admin" && (user as any)?.role === "admin" && (
+              <div className="flex flex-col space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {!adminLoading && (
+                      <><span className="font-semibold text-foreground">{adminUsers.length}</span> users</>
+                    )}
+                  </span>
+                  <button
+                    onClick={fetchAdminUsers}
+                    disabled={adminLoading}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${adminLoading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </button>
+                </div>
+
+                {adminLoading && adminUsers.length === 0 ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-lg bg-card overflow-hidden">
+                    <ul className="divide-y divide-border">
+                      {adminUsers.map(u => (
+                        <li key={u.id} className="flex items-center gap-3 py-3 px-4 hover:bg-muted/40 transition-colors duration-150">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                              {u.name}
+                              {u.role === "admin" && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-primary/15 text-primary">ADMIN</span>
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-muted-foreground hidden sm:inline">Order Logs</span>
+                            <Switch
+                              checked={u.showOrderLogs}
+                              onCheckedChange={(c) => updateUserShowOrderLogs(u.id, c)}
+                            />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!["Dashboard", "Account Manager", "Tools Status", "Order History", "Orders", "Admin"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
                 <p className="text-muted-foreground">Content for {activeSection} coming soon.</p>
               </div>

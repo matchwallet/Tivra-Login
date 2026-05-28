@@ -184,4 +184,60 @@ router.get("/tivra/orders", async (req, res) => {
   }
 });
 
+// Pickup (buy) an order — multipart with order_id, ct_id, ctType
+router.post("/tivra/pickup", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const { order_id, ct_id, ctType } = req.body as {
+      order_id: string;
+      ct_id: string | number;
+      ctType: string | number;
+    };
+    if (!order_id || ct_id === undefined || ctType === undefined) {
+      res.status(400).json({ code: -1, msg: "Missing order_id, ct_id, or ctType" });
+      return;
+    }
+    const form = buildMultipart({
+      order_id: String(order_id),
+      ct_id: String(ct_id),
+      ctType: String(ctType),
+    });
+    const r = await fetch(`${BASE}/buyitoken/pickuppaymentslip`, {
+      method: "POST",
+      headers: { ...commonHeaders, indiatoken: token },
+      body: form,
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
+// Payment slip detail
+router.get("/tivra/orderdetail", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const { id, ctime } = req.query as { id?: string; ctime?: string };
+    if (!id || !ctime) {
+      res.status(400).json({ code: -1, msg: "Missing id or ctime" });
+      return;
+    }
+    const url = `${BASE}/buyitoken/paymentslipdetail?id=${encodeURIComponent(id)}&ctime=${encodeURIComponent(ctime)}`;
+    const r = await fetch(url, {
+      headers: { ...commonHeaders, indiatoken: token },
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
 export default router;
