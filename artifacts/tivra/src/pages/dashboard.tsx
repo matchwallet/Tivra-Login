@@ -1062,13 +1062,18 @@ export default function Dashboard() {
                           
                           const status = orderStatusMap[order.orderState] || { label: "Unknown", color: "bg-muted text-muted-foreground" };
                           
-                          const isPaying = order.orderState === 1;
+                          const isActionable = order.orderState === 1 || order.orderState === 2;
+                          const hoverCls = order.orderState === 1
+                            ? "hover:bg-amber-50 dark:hover:bg-amber-900/10"
+                            : order.orderState === 2
+                              ? "hover:bg-blue-50 dark:hover:bg-blue-900/10"
+                              : "hover:bg-muted/50";
                           return (
                             <li
                               key={order.id || i}
-                              onClick={isPaying ? () => setProcessOrder(order) : undefined}
-                              className={`py-3 px-4 flex flex-col gap-1.5 transition-colors ${
-                                isPaying ? "hover:bg-amber-50 dark:hover:bg-amber-900/10 cursor-pointer" : "hover:bg-muted/50"
+                              onClick={isActionable ? () => setProcessOrder(order) : undefined}
+                              className={`py-3 px-4 flex flex-col gap-1.5 transition-colors ${hoverCls} ${
+                                isActionable ? "cursor-pointer" : ""
                               }`}
                             >
                               <div className="flex items-center justify-between">
@@ -1077,8 +1082,12 @@ export default function Dashboard() {
                                   {status.label}
                                 </span>
                               </div>
-                              {isPaying && (
-                                <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                              {isActionable && (
+                                <div className={`text-[10px] font-medium ${
+                                  order.orderState === 1
+                                    ? "text-amber-700 dark:text-amber-400"
+                                    : "text-blue-700 dark:text-blue-400"
+                                }`}>
                                   Tap to cancel or mark as paid
                                 </div>
                               )}
