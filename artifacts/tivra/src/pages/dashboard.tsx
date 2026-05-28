@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
@@ -107,6 +107,56 @@ export default function Dashboard() {
       // ignore
     }
   }, []);
+
+  // ── Platform session management ───────────────────────────────────────────
+
+  const handlePlatformSessionExpired = useCallback(() => {
+    localStorage.removeItem("tivra_platform_token");
+    localStorage.removeItem("tivra_platform_user");
+    setPlatformUser(null);
+    setModalStep(1);
+    setPhone("");
+    setPassword("");
+    setOtp("");
+    setSendtoken("");
+    setIsModalOpen(true);
+    toast({
+      variant: "destructive",
+      title: "Platform session expired",
+      description: "Please log in to the platform again.",
+    });
+  }, [toast]);
+
+  // Wrapper: fetch any /api/tivra/* endpoint and auto-handle 403
+  const platformFetch = useCallback(async (input: RequestInfo, init?: RequestInit): Promise<any> => {
+    const res = await fetch(input, init);
+    const json = await res.json();
+    if (json.code === 403) {
+      handlePlatformSessionExpired();
+      throw new Error("session_expired");
+    }
+    return json;
+  }, [handlePlatformSessionExpired]);
+
+  // Background poll: verify platform session every 5 s
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    const token = localStorage.getItem("tivra_platform_token");
+    if (!token || !platformUser) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
+    const check = async () => {
+      try {
+        const json = await fetch("/api/tivra/userinfo", {
+          headers: { "x-tivra-token": localStorage.getItem("tivra_platform_token") || "" },
+        }).then(r => r.json());
+        if (json.code === 403) handlePlatformSessionExpired();
+      } catch { /* network errors are silent */ }
+    };
+    pollRef.current = setInterval(check, 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [platformUser, handlePlatformSessionExpired]);
 
   const handleAppLogout = () => {
     logout.mutate(undefined, {
@@ -268,24 +318,22 @@ export default function Dashboard() {
   const fetchOrders = async (page: number) => {
     const pToken = localStorage.getItem("tivra_platform_token");
     if (!pToken) return;
-    
     setOrdersLoading(true);
     try {
-      const res = await fetch(`/api/tivra/orders?page=${page}&limit=10`, {
-        headers: { "x-tivra-token": pToken }
-      }).then(r => r.json());
-      
+      const res = await platformFetch(`/api/tivra/orders?page=${page}&limit=10`, {
+        headers: { "x-tivra-token": pToken },
+      });
       if (res.code === 0) {
         if (page === 1) {
           setOrders(res.data.list || []);
         } else {
-          setOrders(prev => [...prev, ...(res.data.list || [])]);
+          setOrders((prev: any[]) => [...prev, ...(res.data.list || [])]);
         }
         setOrdersTotal(res.data.total || 0);
         setOrdersPage(page);
       }
-    } catch (e) {
-      console.error("Failed to fetch orders", e);
+    } catch (e: any) {
+      if (e?.message !== "session_expired") console.error("Failed to fetch orders", e);
     } finally {
       setOrdersLoading(false);
     }
@@ -296,17 +344,17 @@ export default function Dashboard() {
     if (!pToken) return;
     setToolsLoading(true);
     try {
-      const res = await fetch("/api/tivra/tools", {
+      const res = await platformFetch("/api/tivra/tools", {
         headers: { "x-tivra-token": pToken },
-      }).then(r => r.json());
+      });
       if (res.code === 0) {
         const filtered = (res.data as any[]).filter(
           t => t.upi && (t.upi.includes("@mbkns") || t.upi.includes("@freecharge"))
         );
         setTools(filtered);
       }
-    } catch (e) {
-      // ignore
+    } catch (e: any) {
+      if (e?.message !== "session_expired") { /* ignore */ }
     } finally {
       setToolsLoading(false);
     }
