@@ -12,8 +12,16 @@ const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 const commonHeaders: Record<string, string> = {
   accept: "application/json, text/plain, */*",
   "accept-language": "en-us",
+  dnt: "1",
   origin: ORIGIN,
+  priority: "u=1, i",
   referer: REFERER,
+  "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"macOS"',
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "cross-site",
   "x-rs-cfg-tivpayreqgate": GATE_HEADER,
   "user-agent":
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
