@@ -76,6 +76,7 @@ export default function Dashboard() {
   // Active Orders (waiting payment) state
   const [waitOrders, setWaitOrders] = useState<any[]>([]);
   const [waitOrdersLoading, setWaitOrdersLoading] = useState(false);
+  const [waitOrdersAuto, setWaitOrdersAuto] = useState(false);
 
   useEffect(() => {
     if (error) {
@@ -391,6 +392,16 @@ export default function Dashboard() {
     if (activeSection === "Tools Status") fetchTools();
     if (activeSection === "Orders") fetchWaitOrders();
   }, [activeSection]);
+
+  // Auto-refresh waitOrders every 5s when toggle is on and section is active
+  const waitOrdersAutoRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (waitOrdersAutoRef.current) { clearInterval(waitOrdersAutoRef.current); waitOrdersAutoRef.current = null; }
+    if (waitOrdersAuto && activeSection === "Orders") {
+      waitOrdersAutoRef.current = setInterval(() => { fetchWaitOrders(); }, 5000);
+    }
+    return () => { if (waitOrdersAutoRef.current) clearInterval(waitOrdersAutoRef.current); };
+  }, [waitOrdersAuto, activeSection]);
 
   const filteredAccounts = accounts.filter(a => a.includes(accountSearch));
 
@@ -796,14 +807,29 @@ export default function Dashboard() {
                       </>
                     )}
                   </span>
-                  <button
-                    onClick={fetchWaitOrders}
-                    disabled={waitOrdersLoading}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${waitOrdersLoading ? "animate-spin" : ""}`} />
-                    Refresh
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setWaitOrdersAuto(p => !p)}
+                      className={`flex items-center gap-1.5 text-xs px-2.5 h-7 rounded-full border transition-all duration-200 ${
+                        waitOrdersAuto
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                          : "bg-transparent border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full transition-all duration-200 ${
+                        waitOrdersAuto ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"
+                      }`} />
+                      Auto {waitOrdersAuto ? "On" : "Off"}
+                    </button>
+                    <button
+                      onClick={fetchWaitOrders}
+                      disabled={waitOrdersLoading}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${waitOrdersLoading ? "animate-spin" : ""}`} />
+                      Refresh
+                    </button>
+                  </div>
                 </div>
 
                 {!localStorage.getItem("tivra_platform_token") ? (
