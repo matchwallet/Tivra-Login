@@ -728,7 +728,7 @@ export default function Dashboard() {
       }
       addPickupLog("info", "Auto-buy started.");
       autoTick();
-      waitOrdersAutoRef.current = setInterval(() => { autoTick(); }, 5000);
+      waitOrdersAutoRef.current = setInterval(() => { autoTick(); }, 2000);
     } else if (!waitOrdersAuto) {
       // clear seen-set when user toggles off so we can re-attempt next time
       handledRptsRef.current.clear();
@@ -1246,37 +1246,63 @@ export default function Dashboard() {
                   </div>
                 ) : (() => {
                   const last4Set = new Set(accounts);
-                  const matchingOrders = waitOrders.filter(o => {
+                  const matchingOrders: any[] = [];
+                  const otherOrders: any[] = [];
+                  for (const o of waitOrders) {
                     const a = String(o.acctNo || "");
-                    return a.length >= 4 && last4Set.has(a.slice(-4));
-                  });
-                  if (matchingOrders.length === 0) {
+                    if (a.length >= 4 && last4Set.has(a.slice(-4))) matchingOrders.push(o);
+                    else otherOrders.push(o);
+                  }
+                  if (waitOrders.length === 0) {
                     return (
                       <div className="border border-border rounded-lg bg-card py-10 text-center text-sm text-muted-foreground">
-                        {accounts.length === 0
-                          ? "Add accounts in Account Manager to see matching orders."
-                          : "No matching SBIN orders for your accounts."}
+                        No SBIN orders waiting.
                       </div>
                     );
                   }
+                  const renderRow = (o: any, highlight: boolean) => (
+                    <li
+                      key={o.rptNo}
+                      className={`py-3 px-4 flex flex-col gap-1 transition-colors duration-150 ${
+                        highlight
+                          ? "bg-emerald-500/10 hover:bg-emerald-500/15"
+                          : "hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-mono text-xs text-muted-foreground truncate">{o.rptNo}</span>
+                        <span className="font-bold text-sm flex-shrink-0">₹{o.amount}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-foreground truncate">{o.acctName}</span>
+                        <span className="font-mono text-muted-foreground flex-shrink-0">{o.acctNo}</span>
+                      </div>
+                      <div className="text-[11px] font-mono text-primary">{o.acctCode}</div>
+                    </li>
+                  );
                   return (
-                    <div className="border border-border rounded-lg bg-card overflow-hidden">
-                      <ul className="divide-y divide-border">
-                        {matchingOrders.map(o => (
-                        <li key={o.rptNo} className="py-3 px-4 flex flex-col gap-1 hover:bg-muted/40 transition-colors duration-150">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-mono text-xs text-muted-foreground truncate">{o.rptNo}</span>
-                            <span className="font-bold text-sm flex-shrink-0">₹{o.amount}</span>
+                    <div className="flex flex-col gap-3">
+                      {matchingOrders.length > 0 && (
+                        <div className="border border-emerald-500/30 rounded-lg bg-card overflow-hidden">
+                          <div className="px-4 py-2 bg-emerald-500/10 text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+                            Matching ({matchingOrders.length})
                           </div>
-                          <div className="flex items-center justify-between gap-3 text-xs">
-                            <span className="font-medium text-foreground truncate">{o.acctName}</span>
-                            <span className="font-mono text-muted-foreground flex-shrink-0">{o.acctNo}</span>
+                          <ul className="divide-y divide-border">
+                            {matchingOrders.map(o => renderRow(o, true))}
+                          </ul>
+                        </div>
+                      )}
+                      {otherOrders.length > 0 && (
+                        <div className="border border-border rounded-lg bg-card overflow-hidden">
+                          <div className="px-4 py-2 bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                            Other SBIN ({otherOrders.length})
                           </div>
-                          <div className="text-[11px] font-mono text-primary">{o.acctCode}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                          <ul className="divide-y divide-border">
+                            {otherOrders.map(o => renderRow(o, false))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   );
                 })()}
 
