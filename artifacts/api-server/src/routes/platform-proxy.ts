@@ -1,5 +1,23 @@
 import { Router, type Request, type Response as ExpressResponse } from "express";
 
+// ─── Optional outbound relay (Cloudflare Worker) ──────────────────────────
+// When UPSTREAM_PROXY_URL is set, all upstream fetches are sent through it
+// with X-Upstream-Url + X-Proxy-Secret headers. The Worker forwards to the
+// real upstream from a Cloudflare edge IP, bypassing IP blocks that affect
+// Replit's deployment outbound range. See deploy/cloudflare-worker/README.md.
+const PROXY_URL = process.env.UPSTREAM_PROXY_URL?.replace(/\/$/, "");
+const PROXY_SECRET = process.env.UPSTREAM_PROXY_SECRET;
+
+async function proxiedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  if (!PROXY_URL || !PROXY_SECRET) {
+    return fetch(url, init);
+  }
+  const headers = new Headers(init.headers);
+  headers.set("x-upstream-url", url);
+  headers.set("x-proxy-secret", PROXY_SECRET);
+  return fetch(PROXY_URL, { ...init, headers });
+}
+
 export type PlatformConfig = {
   slug: string;
   base: string;
@@ -105,7 +123,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
     try {
       const { phone, password } = req.body as { phone: string; password: string };
       const form = buildMultipart({ phone, password });
-      const r = await fetch(`${base}${paths.check}`, {
+      const r = await proxiedFetch(`${base}${paths.check}`, {
         method: "POST",
         headers: commonHeaders,
         body: form,
@@ -122,7 +140,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
     try {
       const { phone } = req.body as { phone: string };
       const params = new URLSearchParams({ token: DUMMY_TOKEN, clientId, phone });
-      const r = await fetch(`${base}${paths.sendtoken}`, {
+      const r = await proxiedFetch(`${base}${paths.sendtoken}`, {
         method: "POST",
         headers: { ...commonHeaders, "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
         body: params.toString(),
@@ -139,7 +157,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
     try {
       const { phone, password, sendtoken } = req.body as { phone: string; password: string; sendtoken: string };
       const form = buildMultipart({ phone, sendtoken, password, clientId });
-      const r = await fetch(`${base}${paths.sendlogin}`, {
+      const r = await proxiedFetch(`${base}${paths.sendlogin}`, {
         method: "POST",
         headers: commonHeaders,
         body: form,
@@ -162,7 +180,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
         smscode: smscode ?? "",
         clientId,
       });
-      const r = await fetch(`${base}${paths.login}`, {
+      const r = await proxiedFetch(`${base}${paths.login}`, {
         method: "POST",
         headers: commonHeaders,
         body: form,
@@ -178,7 +196,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
   router.get(`/${slug}/userinfo`, async (req, res) => {
     try {
       const token = getToken(req, res); if (!token) return;
-      const r = await fetch(`${base}${paths.userinfo}`, {
+      const r = await proxiedFetch(`${base}${paths.userinfo}`, {
         headers: { ...commonHeaders, indiatoken: token },
       });
       res.json(await r.json());
@@ -193,7 +211,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
     try {
       const token = getToken(req, res); if (!token) return;
       const url = `${base}${paths.waitorders}?page=1&limit=50&if_asc=false&min_amount=5000&max_amount=100000&method=1&date_asc=1`;
-      const r = await fetch(url, { headers: { ...commonHeaders, indiatoken: token } });
+      const r = await proxiedFetch(url, { headers: { ...commonHeaders, indiatoken: token } });
       const text = await r.text();
       if (!r.ok) {
         req.log.warn({ slug, status: r.status, body: text.slice(0, 500) }, "waitorders upstream non-OK");
@@ -215,7 +233,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
   router.get(`/${slug}/tools`, async (req, res) => {
     try {
       const token = getToken(req, res); if (!token) return;
-      const r = await fetch(`${base}${paths.tools}`, {
+      const r = await proxiedFetch(`${base}${paths.tools}`, {
         headers: { ...commonHeaders, indiatoken: token },
       });
       res.json(await r.json());
@@ -231,7 +249,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
       const token = getToken(req, res); if (!token) return;
       const { page = "1", limit = "10" } = req.query as { page?: string; limit?: string };
       const url = `${base}${paths.orders}?page=${page}&limit=${limit}&currency=inr`;
-      const r = await fetch(url, { headers: { ...commonHeaders, indiatoken: token } });
+      const r = await proxiedFetch(url, { headers: { ...commonHeaders, indiatoken: token } });
       res.json(await r.json());
     } catch (err: any) {
       req.log.error({ err: err?.message, slug }, "orders proxy threw");
@@ -255,7 +273,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
         ct_id: String(ct_id),
         ctType: String(ctType),
       });
-      const r = await fetch(`${base}${paths.pickup}`, {
+      const r = await proxiedFetch(`${base}${paths.pickup}`, {
         method: "POST",
         headers: { ...commonHeaders, indiatoken: token },
         body: form,
@@ -287,7 +305,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
         fields.cancel_remark = cancel_remark && cancel_remark.trim() ? cancel_remark : "Don't want to buy";
       }
       const form = buildMultipart(fields);
-      const r = await fetch(`${base}${paths.processpayment}`, {
+      const r = await proxiedFetch(`${base}${paths.processpayment}`, {
         method: "POST",
         headers: { ...commonHeaders, indiatoken: token },
         body: form,
@@ -309,7 +327,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
         return;
       }
       const url = `${base}${paths.orderdetail}?id=${encodeURIComponent(id)}&ctime=${encodeURIComponent(ctime)}`;
-      const r = await fetch(url, { headers: { ...commonHeaders, indiatoken: token } });
+      const r = await proxiedFetch(url, { headers: { ...commonHeaders, indiatoken: token } });
       res.json(await r.json());
     } catch (err: any) {
       req.log.error({ err: err?.message, slug }, "orderdetail proxy threw");
