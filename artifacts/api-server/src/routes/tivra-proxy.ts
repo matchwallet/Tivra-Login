@@ -33,6 +33,32 @@ function buildMultipart(fields: Record<string, string>): FormData {
   return form;
 }
 
+// Forward an upstream Response to the client, surfacing real status/body so
+// the UI sees "Upstream 403 (Request blocked)" instead of generic "Proxy error".
+async function forwardUpstream(
+  req: import("express").Request,
+  res: import("express").Response,
+  label: string,
+  r: Response
+): Promise<void> {
+  const text = await r.text();
+  if (!r.ok) {
+    req.log.warn({ label, status: r.status, body: text.slice(0, 400) }, "upstream non-OK");
+    res.status(502).json({
+      code: -1,
+      msg: `Upstream ${r.status}`,
+      upstream: text.slice(0, 200),
+    });
+    return;
+  }
+  try {
+    res.json(JSON.parse(text));
+  } catch {
+    req.log.warn({ label, body: text.slice(0, 400) }, "upstream non-JSON");
+    res.status(502).json({ code: -1, msg: "Upstream non-JSON", upstream: text.slice(0, 200) });
+  }
+}
+
 // Step 1: Verify phone + password credentials
 router.post("/tivra/check", async (req, res) => {
   try {
@@ -231,9 +257,10 @@ router.post("/tivra/pickup", async (req, res) => {
       headers: { ...commonHeaders, indiatoken: token },
       body: form,
     });
-    res.json(await r.json());
-  } catch (err) {
-    res.status(502).json({ code: -1, msg: "Proxy error" });
+    await forwardUpstream(req, res, "pickup", r);
+  } catch (err: any) {
+    req.log.error({ err: err?.message }, "pickup proxy threw");
+    res.status(502).json({ code: -1, msg: `Proxy error: ${err?.message || "unknown"}` });
   }
 });
 
@@ -271,9 +298,10 @@ router.post("/tivra/processpayment", async (req, res) => {
       headers: { ...commonHeaders, indiatoken: token },
       body: form,
     });
-    res.json(await r.json());
-  } catch (err) {
-    res.status(502).json({ code: -1, msg: "Proxy error" });
+    await forwardUpstream(req, res, "processpayment", r);
+  } catch (err: any) {
+    req.log.error({ err: err?.message }, "processpayment proxy threw");
+    res.status(502).json({ code: -1, msg: `Proxy error: ${err?.message || "unknown"}` });
   }
 });
 
