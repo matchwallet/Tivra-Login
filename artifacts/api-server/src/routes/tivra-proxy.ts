@@ -130,4 +130,23 @@ router.get("/tivra/userinfo", async (req, res) => {
   }
 });
 
+// Pending orders history
+router.get("/tivra/orders", async (req, res) => {
+  try {
+    const token = req.headers["x-tivra-token"] as string;
+    if (!token) {
+      res.status(400).json({ code: -1, msg: "Missing token" });
+      return;
+    }
+    const { page = "1", limit = "10" } = req.query as { page?: string; limit?: string };
+    const url = `${BASE}/buyitoken/history?page=${page}&limit=${limit}&currency=inr`;
+    const r = await fetch(url, {
+      headers: { ...commonHeaders, indiatoken: token },
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ code: -1, msg: "Proxy error" });
+  }
+});
+
 export default router;

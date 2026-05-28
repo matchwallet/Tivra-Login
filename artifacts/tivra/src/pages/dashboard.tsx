@@ -5,13 +5,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, LayoutDashboard, Users, Clock, Wrench, 
-  ShoppingCart, ScrollText, LogOut, Power, Menu 
+  ShoppingCart, ScrollText, LogOut, Power, Menu,
+  Search, X, Plus, RefreshCw
 } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 type PlatformUser = {
   username: string;
@@ -55,6 +56,17 @@ export default function Dashboard() {
   const [otp, setOtp] = useState("");
   const [sendtoken, setSendtoken] = useState("");
 
+  // Account Manager state
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [accountSearch, setAccountSearch] = useState("");
+  const [addInput, setAddInput] = useState("");
+
+  // Pending Orders state
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+
   useEffect(() => {
     if (error) {
       localStorage.removeItem("tivra_token");
@@ -77,6 +89,25 @@ export default function Dashboard() {
       // ignore
     }
   }, []);
+
+  // Load accounts on mount
+  useEffect(() => {
+    try {
+      const storedAccounts = localStorage.getItem("tivra_accounts");
+      if (storedAccounts) {
+        setAccounts(JSON.parse(storedAccounts));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Fetch orders when active section changes
+  useEffect(() => {
+    if (activeSection === "Pending Orders") {
+      fetchOrders(1);
+    }
+  }, [activeSection]);
 
   const handleAppLogout = () => {
     logout.mutate(undefined, {
@@ -101,7 +132,6 @@ export default function Dashboard() {
     setIsLoadingPlatform(true);
     try {
       if (modalStep === 1) {
-        // Step 1: verify credentials
         const checkRes = await fetch("/api/tivra/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -109,16 +139,13 @@ export default function Dashboard() {
         }).then(r => r.json());
         if (checkRes.code !== 0) throw new Error(checkRes.msg || "Invalid credentials");
 
-        // Step 2: get send token
         const tokenRes = await fetch("/api/tivra/sendtoken", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone })
         }).then(r => r.json());
 
-        // code 2085 = server already knows this IP, no OTP needed
         if (tokenRes.code === 2085) {
-          // Skip OTP entirely — login with empty sendtoken + dummy smscode
           await executeFinalLogin("", "0000");
           return;
         }
@@ -128,7 +155,6 @@ export default function Dashboard() {
         const currentSendtoken = tokenRes.data as string;
         setSendtoken(currentSendtoken);
 
-        // Step 3: trigger OTP SMS
         const sendRes = await fetch("/api/tivra/sendlogin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -136,10 +162,8 @@ export default function Dashboard() {
         }).then(r => r.json());
 
         if (sendRes.code === 2085 || sendRes.data !== "Send Success") {
-          // No OTP needed — go straight to final login
           await executeFinalLogin(currentSendtoken, "0000");
         } else {
-          // OTP was sent to phone
           setModalStep(2);
         }
       } else if (modalStep === 2) {
@@ -207,6 +231,68 @@ export default function Dashboard() {
     setSendtoken("");
     setIsModalOpen(true);
   };
+
+  const handleAddAccounts = () => {
+    if (!addInput.trim()) return;
+    
+    const tokens = addInput.split(/[\s\n]+/).filter(t => t.length > 0);
+    const validTokens = tokens.filter(t => /^\d{4}$/.test(t));
+    
+    if (validTokens.length === 0) {
+      toast({
+        title: "No valid 4-digit numbers found",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    const newAccountsSet = new Set([...accounts, ...validTokens]);
+    const newAccountsArray = Array.from(newAccountsSet);
+    
+    const addedCount = newAccountsArray.length - accounts.length;
+    
+    setAccounts(newAccountsArray);
+    localStorage.setItem("tivra_accounts", JSON.stringify(newAccountsArray));
+    setAddInput("");
+    
+    toast({
+      title: `Added ${addedCount} account(s)`
+    });
+  };
+
+  const handleRemoveAccount = (account: string) => {
+    const updated = accounts.filter(a => a !== account);
+    setAccounts(updated);
+    localStorage.setItem("tivra_accounts", JSON.stringify(updated));
+  };
+
+  const fetchOrders = async (page: number) => {
+    const pToken = localStorage.getItem("tivra_platform_token");
+    if (!pToken) return;
+    
+    setOrdersLoading(true);
+    try {
+      const res = await fetch(`/api/tivra/orders?page=${page}&limit=10`, {
+        headers: { "x-tivra-token": pToken }
+      }).then(r => r.json());
+      
+      if (res.code === 0) {
+        if (page === 1) {
+          setOrders(res.data.list || []);
+        } else {
+          setOrders(prev => [...prev, ...(res.data.list || [])]);
+        }
+        setOrdersTotal(res.data.total || 0);
+        setOrdersPage(page);
+      }
+    } catch (e) {
+      console.error("Failed to fetch orders", e);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  const filteredAccounts = accounts.filter(a => a.includes(accountSearch));
 
   if (isLoading) {
     return (
@@ -327,49 +413,161 @@ export default function Dashboard() {
             
             {/* Dashboard Content */}
             {activeSection === "Dashboard" && (
-              <>
-                {/* Platform Stats Row */}
-                {platformUser && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Card className="bg-card shadow-sm">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Balance</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold truncate">{platformUser.itoken}</div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-card shadow-sm">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Frozen</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold truncate">{platformUser.frozenItoken}</div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-card shadow-sm">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Profit</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold truncate">{platformUser.totalProfit}</div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-card shadow-sm">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Username</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-xl font-bold truncate" title={platformUser.username}>{platformUser.username}</div>
-                      </CardContent>
-                    </Card>
+              <div className="w-full">
+                {platformUser ? (
+                  <div className="flex flex-col border border-border rounded-lg bg-card overflow-hidden">
+                    <div className="border-b border-border py-3 px-4 flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground font-medium">Balance</span>
+                      <span className="text-sm font-semibold text-foreground">{platformUser.itoken}</span>
+                    </div>
+                    <div className="border-b border-border py-3 px-4 flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground font-medium">Frozen</span>
+                      <span className="text-sm font-semibold text-foreground">{platformUser.frozenItoken}</span>
+                    </div>
+                    <div className="border-b border-border py-3 px-4 flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground font-medium">Total Profit</span>
+                      <span className="text-sm font-semibold text-foreground">{platformUser.totalProfit}</span>
+                    </div>
+                    <div className="py-3 px-4 flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground font-medium">Username</span>
+                      <span className="text-sm font-semibold text-foreground">{platformUser.username}</span>
+                    </div>
                   </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-3">Connect platform to see account data.</p>
                 )}
-
-              </>
+              </div>
             )}
 
-            {activeSection !== "Dashboard" && (
+            {/* Account Manager Content */}
+            {activeSection === "Account Manager" && (
+              <div className="flex flex-col space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <span className="font-medium text-sm">{accounts.length} accounts saved</span>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder="Search accounts..."
+                      className="pl-9"
+                      value={accountSearch}
+                      onChange={e => setAccountSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start gap-4">
+                  <Textarea
+                    placeholder="Enter 4-digit numbers separated by spaces or newlines&#10;e.g. 8979 9879 9877"
+                    className="w-full sm:flex-1 resize-none h-24"
+                    value={addInput}
+                    onChange={e => setAddInput(e.target.value)}
+                  />
+                  <Button onClick={handleAddAccounts} className="w-full sm:w-auto h-24 flex items-center gap-2">
+                    <Plus className="h-4 w-4" /> Add Accounts
+                  </Button>
+                </div>
+
+                <div className="border border-border rounded-lg bg-card overflow-hidden mt-4">
+                  {filteredAccounts.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">
+                      No accounts saved.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-border">
+                      {filteredAccounts.map(account => (
+                        <li key={account} className="flex items-center justify-between py-3 px-4 hover:bg-muted/50 transition-colors">
+                          <span className="text-sm font-medium">{account}</span>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleRemoveAccount(account)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Pending Orders Content */}
+            {activeSection === "Pending Orders" && (
+              <div className="flex flex-col space-y-4">
+                {!localStorage.getItem("tivra_platform_token") ? (
+                  <p className="text-sm text-muted-foreground py-3">Connect platform first.</p>
+                ) : (
+                  <div className="flex flex-col border border-border rounded-lg bg-card overflow-hidden">
+                    {orders.length === 0 && !ordersLoading ? (
+                      <div className="p-8 text-center text-muted-foreground text-sm">
+                        No pending orders found.
+                      </div>
+                    ) : (
+                      <ul className="divide-y divide-border">
+                        {orders.map((order, i) => {
+                          const orderStatusMap: Record<number, { label: string, color: string }> = {
+                            1: { label: "Paying", color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
+                            2: { label: "Under Review", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+                            3: { label: "Success", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
+                            4: { label: "Canceled", color: "bg-muted text-muted-foreground" }
+                          };
+                          
+                          const status = orderStatusMap[order.status] || { label: "Unknown", color: "bg-muted text-muted-foreground" };
+                          
+                          return (
+                            <li key={order.id || i} className="py-3 px-4 flex flex-col gap-1.5 hover:bg-muted/50 transition-colors">
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono text-xs truncate max-w-[200px] sm:max-w-xs">{order.orderNo}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${status.color}`}>
+                                  {status.label}
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {order.acctName} · {order.acctNo} · {order.acctCode}
+                              </div>
+                              <div className="text-sm mt-0.5 flex items-center gap-2">
+                                <span className="font-bold">₹{order.amount}</span>
+                                <span className="text-emerald-500 font-medium">+{order.reward}</span>
+                                <span className="text-muted-foreground text-xs ml-auto">
+                                  {new Date(order.crtDate * 1000).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    
+                    {ordersLoading && (
+                      <div className="py-8 flex justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    
+                    {orders.length > 0 && orders.length < ordersTotal && (
+                      <div className="p-4 border-t border-border flex justify-center">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => fetchOrders(ordersPage + 1)}
+                          disabled={ordersLoading}
+                          className="flex items-center gap-2"
+                        >
+                          {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          Load More
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Other Sections */}
+            {!["Dashboard", "Account Manager", "Pending Orders"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg bg-card/50">
                 <p className="text-muted-foreground">Content for {activeSection} coming soon.</p>
               </div>
