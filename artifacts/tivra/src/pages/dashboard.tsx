@@ -127,16 +127,36 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Load accounts on mount
+  // Load accounts on mount: server is source of truth, localStorage is cache
   useEffect(() => {
+    // 1. Hydrate from cache immediately so UI/autoTick don't see empty state
     try {
       const storedAccounts = localStorage.getItem("tivra_accounts");
-      if (storedAccounts) {
-        setAccounts(JSON.parse(storedAccounts));
-      }
+      if (storedAccounts) setAccounts(JSON.parse(storedAccounts));
     } catch (e) {
       // ignore
     }
+    // 2. Fetch authoritative list from server, then mirror to localStorage
+    const jwt = localStorage.getItem("tivra_jwt");
+    if (jwt) {
+      fetch("/api/me/accounts", { headers: { Authorization: `Bearer ${jwt}` } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.accounts)) {
+            setAccounts(data.accounts);
+            localStorage.setItem("tivra_accounts", JSON.stringify(data.accounts));
+          }
+        })
+        .catch(() => {});
+    }
+    // 3. Cross-tab sync: if another tab edits accounts, mirror into this tab
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "tivra_accounts" && e.newValue) {
+        try { setAccounts(JSON.parse(e.newValue)); } catch {}
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   // ── Platform session management ───────────────────────────────────────────
@@ -372,6 +392,7 @@ export default function Dashboard() {
     
     setAccounts(newAccountsArray);
     localStorage.setItem("tivra_accounts", JSON.stringify(newAccountsArray));
+    persistAccounts(newAccountsArray);
     setAddInput("");
     
     toast({
@@ -383,6 +404,17 @@ export default function Dashboard() {
     const updated = accounts.filter(a => a !== account);
     setAccounts(updated);
     localStorage.setItem("tivra_accounts", JSON.stringify(updated));
+    persistAccounts(updated);
+  };
+
+  const persistAccounts = (accounts: string[]) => {
+    const jwt = localStorage.getItem("tivra_jwt");
+    if (!jwt) return;
+    fetch("/api/me/accounts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({ accounts }),
+    }).catch(() => {});
   };
 
   const fetchOrders = async (page: number) => {

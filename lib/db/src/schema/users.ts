@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -9,6 +10,7 @@ export const usersTable = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
   showOrderLogs: boolean("show_order_logs").notNull().default(true),
+  accounts: text("accounts").array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
