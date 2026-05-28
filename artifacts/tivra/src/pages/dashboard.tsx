@@ -102,6 +102,12 @@ export default function Dashboard() {
   // Admin state
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [createUserBusy, setCreateUserBusy] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
 
   // Process-payment (cancel / finish) dialog state
   const [processOrder, setProcessOrder] = useState<any | null>(null);
@@ -1548,14 +1554,28 @@ export default function Dashboard() {
                       <><span className="font-semibold text-foreground">{adminUsers.length}</span> users</>
                     )}
                   </span>
-                  <button
-                    onClick={fetchAdminUsers}
-                    disabled={adminLoading}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${adminLoading ? "animate-spin" : ""}`} />
-                    Refresh
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-8 px-2.5 gap-1.5 text-xs"
+                      onClick={() => {
+                        setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNewUserRole("user");
+                        setCreateUserOpen(true);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Create User
+                    </Button>
+                    <button
+                      onClick={fetchAdminUsers}
+                      disabled={adminLoading}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${adminLoading ? "animate-spin" : ""}`} />
+                      Refresh
+                    </button>
+                  </div>
                 </div>
 
                 {adminLoading && adminUsers.length === 0 ? (
@@ -1590,6 +1610,80 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+
+            {/* Create User dialog (admin) */}
+            <Dialog open={createUserOpen} onOpenChange={(o) => { if (!createUserBusy) setCreateUserOpen(o); }}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Create new user</DialogTitle>
+                  <DialogDescription>The new user can log in immediately with these credentials.</DialogDescription>
+                </DialogHeader>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="cu-name" className="text-xs">Name</Label>
+                    <Input id="cu-name" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="Jane Doe" disabled={createUserBusy} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="cu-email" className="text-xs">Email</Label>
+                    <Input id="cu-email" type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com" disabled={createUserBusy} autoComplete="off" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="cu-password" className="text-xs">Password <span className="text-muted-foreground">(min 6 chars)</span></Label>
+                    <Input id="cu-password" type="text" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="initial password" disabled={createUserBusy} autoComplete="new-password" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-xs">Role</Label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewUserRole("user")}
+                        disabled={createUserBusy}
+                        className={`flex-1 h-9 rounded-md border text-xs font-medium transition-colors ${newUserRole === "user" ? "bg-primary text-primary-foreground border-primary" : "bg-transparent text-muted-foreground border-border hover:text-foreground"}`}
+                      >User</button>
+                      <button
+                        type="button"
+                        onClick={() => setNewUserRole("admin")}
+                        disabled={createUserBusy}
+                        className={`flex-1 h-9 rounded-md border text-xs font-medium transition-colors ${newUserRole === "admin" ? "bg-primary text-primary-foreground border-primary" : "bg-transparent text-muted-foreground border-border hover:text-foreground"}`}
+                      >Admin</button>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCreateUserOpen(false)} disabled={createUserBusy}>Cancel</Button>
+                  <Button
+                    onClick={async () => {
+                      if (!newUserName.trim() || !newUserEmail.trim() || newUserPassword.length < 6) {
+                        toast({ variant: "destructive", title: "Missing fields", description: "Name, email, and a password of 6+ chars are required." });
+                        return;
+                      }
+                      const jwt = localStorage.getItem("tivra_token");
+                      if (!jwt) { toast({ variant: "destructive", title: "Not logged in" }); return; }
+                      setCreateUserBusy(true);
+                      try {
+                        const r = await fetch("/api/admin/users", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+                          body: JSON.stringify({ name: newUserName.trim(), email: newUserEmail.trim(), password: newUserPassword, role: newUserRole }),
+                        });
+                        const data = await r.json();
+                        if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+                        toast({ title: "User created", description: `${data.email} (${data.role})` });
+                        setCreateUserOpen(false);
+                        fetchAdminUsers();
+                      } catch (e: any) {
+                        toast({ variant: "destructive", title: "Create failed", description: e?.message });
+                      } finally {
+                        setCreateUserBusy(false);
+                      }
+                    }}
+                    disabled={createUserBusy}
+                  >
+                    {createUserBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {/* Process Paying-order dialog */}
             <Dialog

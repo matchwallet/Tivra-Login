@@ -1,9 +1,58 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin, type AuthedRequest } from "../middleware/auth";
 
 const router = Router();
+
+router.post("/admin/users", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+  const { email, name, password, role } = req.body as {
+    email?: unknown;
+    name?: unknown;
+    password?: unknown;
+    role?: unknown;
+  };
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Valid email required" });
+    return;
+  }
+  if (typeof name !== "string" || name.trim().length < 1 || name.length > 100) {
+    res.status(400).json({ error: "Name required (1-100 chars)" });
+    return;
+  }
+  if (typeof password !== "string" || password.length < 6 || password.length > 128) {
+    res.status(400).json({ error: "Password must be 6-128 chars" });
+    return;
+  }
+  const finalRole = role === "admin" ? "admin" : "user";
+
+  const existing = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.email, email))
+    .limit(1);
+  if (existing.length > 0) {
+    res.status(409).json({ error: "Email already in use" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const [user] = await db
+    .insert(usersTable)
+    .values({ email, name: name.trim(), passwordHash, role: finalRole })
+    .returning();
+
+  req.log.info({ createdBy: req.authUser!.id, newUserId: user.id, role: finalRole }, "admin created user");
+  res.status(201).json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    showOrderLogs: user.showOrderLogs,
+    createdAt: user.createdAt.toISOString(),
+  });
+});
 
 router.get("/admin/users", requireAuth, requireAdmin, async (_req, res) => {
   const users = await db.select().from(usersTable);
