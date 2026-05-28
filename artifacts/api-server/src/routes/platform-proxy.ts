@@ -110,7 +110,7 @@ export function createPlatformRouter(config: PlatformConfig): Router {
         headers: commonHeaders,
         body: form,
       });
-      res.json(await r.json());
+      await forwardUpstream(req, res, `${slug}:check`, r);
     } catch (err: any) {
       req.log.error({ err: err?.message, slug }, "check proxy threw");
       res.status(502).json({ code: -1, msg: `Proxy error: ${err?.message || "unknown"}` });
