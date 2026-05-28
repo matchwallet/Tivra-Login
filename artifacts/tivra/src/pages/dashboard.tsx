@@ -3,14 +3,15 @@ import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Loader2, LogOut, Terminal } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   
-  // Need to provide auth header if not using cookies, but let's assume customFetch handles it via localStorage
   const { data: user, isLoading, error } = useGetMe({ 
     query: { 
       retry: false
@@ -47,23 +48,22 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <header className="border-b border-border h-16 flex items-center px-6">
-          <div className="flex items-center gap-2 text-primary font-bold text-xl tracking-tighter">
-            <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center text-primary-foreground">T</div>
-            Tivra
-          </div>
+      <div className="min-h-screen bg-background text-foreground flex flex-col">
+        <header className="h-16 flex items-center px-8 border-b border-border bg-card">
+          <div className="font-bold text-xl tracking-[-0.04em]">Tivra</div>
           <div className="ml-auto">
             <Skeleton className="h-9 w-24" />
           </div>
         </header>
-        <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
-          <Skeleton className="h-10 w-1/3 mb-4" />
-          <Skeleton className="h-6 w-1/4 mb-12" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Skeleton className="h-40 rounded-xl" />
-            <Skeleton className="h-40 rounded-xl" />
-            <Skeleton className="h-40 rounded-xl" />
+        <main className="flex-1 p-8 sm:p-12 max-w-5xl mx-auto w-full">
+          <Skeleton className="h-12 w-64 mb-4" />
+          <Skeleton className="h-6 w-48 mb-12" />
+          <hr className="border-border mb-12" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Skeleton className="h-32 rounded-lg" />
+            <Skeleton className="h-32 rounded-lg" />
+            <Skeleton className="h-32 rounded-lg" />
+            <Skeleton className="h-32 rounded-lg" />
           </div>
         </main>
       </div>
@@ -72,68 +72,81 @@ export default function Dashboard() {
 
   if (!user) return null;
 
+  const firstName = user.name ? user.name.split(' ')[0] : 'User';
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b border-border bg-card/50 backdrop-blur-md sticky top-0 z-50 h-16 flex items-center px-6">
-        <div className="flex items-center gap-2 text-primary font-bold text-xl tracking-tighter">
-          <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center text-primary-foreground shadow-[0_0_10px_hsl(var(--primary)_/_0.4)]">T</div>
-          Tivra
-        </div>
-        <div className="ml-auto flex items-center gap-4">
-          <div className="text-sm text-muted-foreground hidden sm:block">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <header className="sticky top-0 z-50 h-16 flex items-center px-8 border-b border-border bg-card/80 backdrop-blur-sm">
+        <div className="font-bold text-xl tracking-[-0.04em] text-foreground">Tivra</div>
+        <div className="ml-auto flex items-center gap-6">
+          <span className="text-sm font-medium text-foreground hidden sm:inline-block" data-testid="text-user-email">
             {user.email}
-          </div>
+          </span>
           <Button 
             variant="ghost" 
-            size="sm" 
-            className="text-muted-foreground hover:text-foreground"
+            className="text-foreground hover:bg-muted"
             onClick={handleLogout}
             disabled={logout.isPending}
+            data-testid="button-signout"
           >
-            {logout.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <LogOut className="w-4 h-4 mr-2" />}
-            Sign Out
+            {logout.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Sign out
           </Button>
         </div>
       </header>
 
-      <main className="flex-1 p-6 sm:p-12 max-w-7xl mx-auto w-full relative">
-        {/* Glow behind main content */}
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/5 rounded-[100%] blur-[100px] pointer-events-none" />
-
-        <div className="relative z-10 mb-12">
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground mb-3">
-            Welcome back, <span className="text-primary">{user.name.split(' ')[0]}</span>
+      <main className="flex-1 p-8 sm:p-16 max-w-5xl mx-auto w-full">
+        <div className="mb-12 pt-8">
+          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-foreground mb-4" data-testid="text-hero-greeting">
+            Good to see you, {firstName}.
           </h1>
-          <p className="text-lg text-muted-foreground flex items-center gap-2">
-            <Terminal className="w-5 h-5 text-primary" />
-            Your command center is ready.
+          <p className="text-lg text-muted-foreground" data-testid="text-hero-subline">
+            {user.email}
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
-          <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm hover:border-primary/50 hover:shadow-[0_0_20px_hsl(var(--primary)_/_0.1)] transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </div>
-            <h3 className="font-semibold text-lg mb-2">Projects</h3>
-            <p className="text-muted-foreground text-sm">Manage your active initiatives and track progress across all streams.</p>
-          </div>
+        <hr className="border-border mb-12" />
 
-          <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm hover:border-primary/50 hover:shadow-[0_0_20px_hsl(var(--primary)_/_0.1)] transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
-            </div>
-            <h3 className="font-semibold text-lg mb-2">Finances</h3>
-            <p className="text-muted-foreground text-sm">Monitor runway, revenue streams, and resource allocation.</p>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="bg-card shadow-sm border-border" data-testid="card-sessions">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+              <CardTitle className="text-xl font-medium">Sessions</CardTitle>
+              <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none font-medium">Active</Badge>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-muted-foreground text-base">Manage your current active sessions and connections.</CardDescription>
+            </CardContent>
+          </Card>
 
-          <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm hover:border-primary/50 hover:shadow-[0_0_20px_hsl(var(--primary)_/_0.1)] transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-            </div>
-            <h3 className="font-semibold text-lg mb-2">Intel</h3>
-            <p className="text-muted-foreground text-sm">Review incoming reports, metrics, and system diagnostics.</p>
-          </div>
+          <Card className="bg-card shadow-sm border-border" data-testid="card-reports">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+              <CardTitle className="text-xl font-medium">Reports</CardTitle>
+              <Badge variant="secondary" className="bg-accent/20 text-accent-foreground hover:bg-accent/30 border-none font-medium">Ready</Badge>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-muted-foreground text-base">View your latest analytics and system reports.</CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card shadow-sm border-border" data-testid="card-settings">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+              <CardTitle className="text-xl font-medium">Settings</CardTitle>
+              <Badge variant="secondary" className="bg-secondary text-secondary-foreground hover:bg-secondary/80 border-none font-medium">Configure</Badge>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-muted-foreground text-base">Update your preferences and account details.</CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card shadow-sm border-border" data-testid="card-support">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+              <CardTitle className="text-xl font-medium">Support</CardTitle>
+              <Badge variant="secondary" className="bg-muted text-muted-foreground border-none font-medium">Help</Badge>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-muted-foreground text-base">Get help from our support team or view documentation.</CardDescription>
+            </CardContent>
+          </Card>
         </div>
       </main>
     </div>
