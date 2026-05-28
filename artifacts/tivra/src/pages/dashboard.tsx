@@ -554,7 +554,26 @@ export default function Dashboard() {
     // Claim the tick immediately so a slow tick can never overlap with the next interval.
     pickupBusyRef.current = true;
     try {
-    // 1. Read default tool
+    // 1. Always fetch wait orders first so the count updates every tick,
+    //    regardless of any guard failures below.
+    let sbinOrders: any[] = [];
+    try {
+      const woRes = await platformFetch("/api/tivra/waitorders", {
+        headers: { "x-tivra-token": pToken },
+      });
+      if (woRes.code === 0) {
+        const list = woRes.data?.list || [];
+        setWaitOrdersTotal(list.length);
+        sbinOrders = list.filter(
+          (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
+        );
+        setWaitOrders(sbinOrders);
+      }
+    } catch (e: any) {
+      if (e?.message === "session_expired") return;
+    }
+
+    // 2. Read default tool
     const dtRaw = localStorage.getItem("tivra_default_tool");
     if (!dtRaw) {
       addPickupLog("warn", "No default tool selected — open Tools Status to pick one.");
@@ -564,7 +583,7 @@ export default function Dashboard() {
     let dt: DefaultTool;
     try { dt = JSON.parse(dtRaw); } catch { addPickupLog("error", "Default tool config invalid."); setWaitOrdersAuto(false); return; }
 
-    // 2. Hard abort if user already has a Paying order
+    // 3. Hard abort if user already has a Paying order
     try {
       const histRes = await platformFetch("/api/tivra/orders?page=1&limit=10", {
         headers: { "x-tivra-token": pToken },
@@ -581,7 +600,7 @@ export default function Dashboard() {
       if (e?.message === "session_expired") return;
     }
 
-    // 3. Confirm default tool is online
+    // 4. Confirm default tool is online
     try {
       const toolsRes = await platformFetch("/api/tivra/tools", {
         headers: { "x-tivra-token": pToken },
@@ -592,24 +611,6 @@ export default function Dashboard() {
         if (!match) { addPickupLog("warn", `Default tool ${dt.upi} not in tool list.`); return; }
         if (match.state !== 2) { addPickupLog("warn", `Default tool ${dt.upi} is offline — skipping tick.`); return; }
         setTools(list.filter(t => t.upi && (t.upi.includes("@mbkns") || t.upi.includes("@freecharge"))));
-      }
-    } catch (e: any) {
-      if (e?.message === "session_expired") return;
-    }
-
-    // 4. Fetch wait orders, filter SBIN
-    let sbinOrders: any[] = [];
-    try {
-      const woRes = await platformFetch("/api/tivra/waitorders", {
-        headers: { "x-tivra-token": pToken },
-      });
-      if (woRes.code === 0) {
-        const list = woRes.data?.list || [];
-        setWaitOrdersTotal(list.length);
-        sbinOrders = list.filter(
-          (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
-        );
-        setWaitOrders(sbinOrders);
       }
     } catch (e: any) {
       if (e?.message === "session_expired") return;
