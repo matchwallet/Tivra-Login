@@ -600,9 +600,14 @@ export default function Dashboard() {
           (o: any) => typeof o.acctCode === "string" && o.acctCode.startsWith("SBIN")
         );
         setWaitOrders(sbinOrders);
+      } else {
+        addPickupLog("error", `Waitorders fetch blocked by upstream: ${woRes.msg || "unknown"}`);
+        return;
       }
     } catch (e: any) {
       if (e?.message === "session_expired") return;
+      addPickupLog("error", `Waitorders request failed: ${e?.message || e}`);
+      return;
     }
 
     // 2. Read default tool
