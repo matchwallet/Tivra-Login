@@ -102,36 +102,46 @@ export default function Dashboard() {
     setIsLoadingPlatform(true);
     try {
       if (modalStep === 1) {
-        let res = await fetch("/api/tivra/check", {
+        // Step 1: verify credentials
+        const checkRes = await fetch("/api/tivra/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, password })
         }).then(r => r.json());
-        
-        if (res.code !== 0 && res.code !== 2085) throw new Error(res.msg || "Check failed");
+        if (checkRes.code !== 0) throw new Error(checkRes.msg || "Invalid credentials");
 
-        res = await fetch("/api/tivra/sendtoken", {
+        // Step 2: get send token
+        const tokenRes = await fetch("/api/tivra/sendtoken", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone })
         }).then(r => r.json());
-        if (res.code !== 0) throw new Error(res.msg || "Failed to get send token");
-        
-        const currentSendtoken = res.data;
+
+        // code 2085 = server already knows this IP, no OTP needed
+        if (tokenRes.code === 2085) {
+          // Skip OTP entirely — login with empty sendtoken + dummy smscode
+          await executeFinalLogin("", "0000");
+          return;
+        }
+
+        if (tokenRes.code !== 0) throw new Error(tokenRes.msg || "Failed to get send token");
+
+        const currentSendtoken = tokenRes.data as string;
         setSendtoken(currentSendtoken);
 
-        res = await fetch("/api/tivra/sendlogin", {
+        // Step 3: trigger OTP SMS
+        const sendRes = await fetch("/api/tivra/sendlogin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, password, sendtoken: currentSendtoken })
         }).then(r => r.json());
-        
-        if (res.code !== 0 && res.code !== 2085) throw new Error(res.msg || "Failed to trigger login");
 
-        if (res.data === "Send Success") {
-          setModalStep(2);
+        if (sendRes.code === 2085 || sendRes.data !== "Send Success") {
+          // No OTP needed — go straight to final login
+          await executeFinalLogin(currentSendtoken, "0000");
         } else {
-          await executeFinalLogin(currentSendtoken, "");
+          // OTP was sent to phone
+          setModalStep(2);
         }
       } else if (modalStep === 2) {
         await executeFinalLogin(sendtoken, otp);
@@ -164,8 +174,13 @@ export default function Dashboard() {
     
     if (res.code !== 0) throw new Error(res.msg || "Login failed");
 
-    const logintoken = res.data;
+    const logintoken = res.data as string;
     localStorage.setItem("tivra_platform_token", logintoken);
+
+    toast({
+      title: "Platform token received",
+      description: logintoken,
+    });
 
     const userRes = await fetch("/api/tivra/userinfo", {
       method: "GET",
