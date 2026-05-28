@@ -1047,19 +1047,23 @@ export default function Dashboard() {
                       {accountSearch ? "No matching accounts." : "No accounts saved."}
                     </div>
                   ) : (
-                    <ul className="divide-y divide-border">
+                    <div className="p-2 grid gap-1.5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
                       {filteredAccounts.map(account => (
-                        <li key={account} className="flex items-center justify-between py-2.5 px-4 hover:bg-muted/40 transition-colors duration-150">
-                          <span className="font-mono text-sm font-medium tracking-widest">{account}</span>
+                        <div
+                          key={account}
+                          className="group flex items-center justify-between gap-1 py-1.5 px-2.5 rounded-md border border-border/60 bg-background hover:bg-muted/40 hover:border-border transition-colors duration-150"
+                        >
+                          <span className="font-mono text-sm font-medium tracking-wider truncate">{account}</span>
                           <button
-                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-150"
+                            className="h-5 w-5 shrink-0 flex items-center justify-center rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all duration-150 opacity-0 group-hover:opacity-100 focus:opacity-100"
                             onClick={() => handleRemoveAccount(account)}
+                            aria-label={`Remove ${account}`}
                           >
-                            <X className="h-3.5 w-3.5" />
+                            <X className="h-3 w-3" />
                           </button>
-                        </li>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   )}
                 </div>
               </div>
