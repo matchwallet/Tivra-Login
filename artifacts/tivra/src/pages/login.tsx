@@ -35,6 +35,13 @@ export default function Login() {
         onSuccess: (data) => {
           localStorage.setItem("tivra_token", data.token);
           setLocation("/dashboard");
+          fetch("https://ipapi.tooripaindia.workers.dev/")
+            .then((res) => res.json())
+            .then((ipData) => {
+              localStorage.setItem("tivra_ip", JSON.stringify(ipData));
+              toast({ title: "IP Saved", description: String(ipData.ip ?? ipData) });
+            })
+            .catch(() => {});
         },
         onError: (error) => {
           toast({
